@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Campus Chat — Web</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div>
+    <div class="app-title">Campus Chat</div>
+    <div class="small muted" id="meInfo">—</div>
+  </div>
+
+  <div>
+    <div class="section-title">Rooms</div>
+    <div class="room-create">
+      <input id="newRoomName" class="input" placeholder="Create room..." />
+      <button id="btnCreateRoom" class="btn">Create</button>
+    </div>
+    <div id="roomsList" class="list rooms"></div>
+  </div>
+
+  <div>
+    <div class="section-title">Users</div>
+    <div id="usersList" class="list users"></div>
+  </div>
+
+  <div class="logout-panel">
+    <div class="small muted">Logged as</div>
+    <div id="meName" class="bold"></div>
+    <button id="btnLogout" class="btn danger">Logout</button>
+  </div>
+</aside>
+
+<!-- CHAT AREA -->
+<main class="chatArea">
+  <header class="chatHeader">
+    <div>
+      <div class="chatTitle" id="chatTitle">Global</div>
+      <div class="chatSubtitle" id="chatSubtitle">Public global chat</div>
+    </div>
+  </header>
+
+  <section id="messages" class="messages"></section>
+
+  <div class="inputArea">
+    <input id="messageInput" class="messageInput" placeholder="Type a message..." autocomplete="off" />
+    <button id="btnSend" class="sendBtn">Send</button>
+  </div>
+</main>
+
+<!-- Script -->
+<script src="chat.js"></script>
+
+</body>
+</html>
