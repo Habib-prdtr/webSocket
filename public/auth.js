@@ -1,4 +1,4 @@
-const API = "http://localhost:3000/api";
+const API = `https://${window.location.hostname}:3000/api`;
 
 function saveAuth(token, id, username) {
   sessionStorage.setItem("token", token);
