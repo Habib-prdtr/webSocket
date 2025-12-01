@@ -2,7 +2,7 @@
 require('dotenv').config();
 
 const express = require('express');
-const http = require('http');
+const https = require('https');
 const { WebSocketServer } = require('ws');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
@@ -17,11 +17,20 @@ if (!SECRET) {
   console.warn('WARNING: JWT_SECRET not set in .env. Set JWT_SECRET to a strong secret.');
 }
 
+const uploadImage = multer({ storage: createStorage("images") });
+const uploadVoice = multer({ storage: createStorage("voices") });
+
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public'))); // serve public/
 
 const activeCalls = new Map();
+
+const options = {
+  key: fs.readFileSync('localhost-key.pem'),
+  cert: fs.readFileSync('localhost.pem')
+};
 
 // MySQL pool
 const pool = mysql.createPool({
@@ -274,16 +283,239 @@ app.get('/api/private/:me/:target', authMiddleware, async (req, res) => {
   }
 });
 
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
+app.post("/api/upload/image", authMiddleware, uploadImage.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file" });
+
+  const senderId = req.user.id;
+  const roomId = req.body.roomId || null;
+  const recipientId = req.body.recipientId || null;
+  const fileUrl = "/uploads/images/" + req.file.filename;
+
+  try {
+    // Simpan ke database
+    const [result] = await pool.query(
+      `INSERT INTO messages (sender_id, room_id, recipient_id, file_url, file_type)
+       VALUES (?, ?, ?, ?, ?)`,
+      [senderId, roomId, recipientId, fileUrl, "image"]
+    );
+
+    const messageId = result.insertId;
+
+    console.log('📤 IMAGE UPLOAD SAVED:', { 
+      messageId, senderId, roomId, recipientId, fileUrl 
+    });
+
+    // Dapatkan username untuk response
+    const [[user]] = await pool.query('SELECT username FROM users WHERE id = ?', [senderId]);
+    const username = user.username;
+
+    // 🔥 PERBAIKI: Broadcast yang lebih robust
+    const messageData = {
+      type: "file_message",
+      message: {
+        id: messageId,
+        sender_id: senderId,
+        username: username,
+        file_url: fileUrl,
+        file_type: "image",
+        room_id: roomId,
+        recipient_id: recipientId,
+        created_at: new Date().toISOString()
+      }
+    };
+
+    console.log('📨 BROADCASTING FILE MESSAGE:', messageData);
+
+    // Logic broadcast yang lebih baik
+    if (roomId) {
+      // Room message - broadcast ke semua yang di room
+      broadcastAll(messageData);
+      console.log(`✅ BROADCASTED to ROOM ${roomId}`);
+    } else if (recipientId) {
+      // Private message - kirim hanya ke sender dan recipient
+      let sentCount = 0;
+      for (const [clientWS, clientInfo] of clients) {
+        if (clientWS.readyState === clientWS.OPEN) {
+          const shouldSend = 
+            clientInfo.userId === senderId || 
+            clientInfo.userId === Number(recipientId);
+          
+          if (shouldSend) {
+            clientWS.send(JSON.stringify(messageData));
+            sentCount++;
+            console.log(`✅ SENT to user ${clientInfo.userId} (${clientInfo.username})`);
+          }
+        }
+      }
+      console.log(`✅ PRIVATE FILE: Sent to ${sentCount} users`);
+    } else {
+      // Global message
+      broadcastAll(messageData);
+      console.log(`✅ BROADCASTED GLOBALLY`);
+    }
+
+    return res.json({ fileUrl });
+  } catch (err) {
+    console.error("Image upload error:", err);
+    return res.status(500).json({ error: "DB error" });
+  }
+});
+
+// UPLOAD VOICE - PERBAIKI Private Message Broadcast
+app.post("/api/upload/voice", authMiddleware, uploadVoice.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file" });
+
+  const senderId = req.user.id;
+  const roomId = req.body.roomId || null;
+  const recipientId = req.body.recipientId || null;
+  const fileUrl = "/uploads/voices/" + req.file.filename;
+
+  try {
+    // Simpan ke database
+    const [result] = await pool.query(
+      `INSERT INTO messages (sender_id, room_id, recipient_id, file_url, file_type)
+       VALUES (?, ?, ?, ?, ?)`,
+      [senderId, roomId, recipientId, fileUrl, "audio"]
+    );
+
+    const messageId = result.insertId;
+
+    console.log('📤 VOICE UPLOAD SAVED:', { 
+      messageId, senderId, roomId, recipientId, fileUrl 
+    });
+
+    // Dapatkan username untuk response
+    const [[user]] = await pool.query('SELECT username FROM users WHERE id = ?', [senderId]);
+    const username = user.username;
+
+    // 🔥 PERBAIKI: Broadcast yang lebih robust
+    const messageData = {
+      type: "file_message",
+      message: {
+        id: messageId,
+        sender_id: senderId,
+        username: username,
+        file_url: fileUrl,
+        file_type: "audio",
+        room_id: roomId,
+        recipient_id: recipientId,
+        created_at: new Date().toISOString()
+      }
+    };
+
+    console.log('📨 BROADCASTING VOICE MESSAGE:', messageData);
+
+    // Logic broadcast yang lebih baik
+    if (roomId) {
+      // Room message
+      broadcastAll(messageData);
+      console.log(`✅ BROADCASTED to ROOM ${roomId}`);
+    } else if (recipientId) {
+      // Private message - kirim hanya ke sender dan recipient
+      let sentCount = 0;
+      for (const [clientWS, clientInfo] of clients) {
+        if (clientWS.readyState === clientWS.OPEN) {
+          const shouldSend = 
+            clientInfo.userId === senderId || 
+            clientInfo.userId === Number(recipientId);
+          
+          if (shouldSend) {
+            clientWS.send(JSON.stringify(messageData));
+            sentCount++;
+            console.log(`✅ SENT to user ${clientInfo.userId} (${clientInfo.username})`);
+          }
+        }
+      }
+      console.log(`✅ PRIVATE VOICE: Sent to ${sentCount} users`);
+    } else {
+      // Global message
+      broadcastAll(messageData);
+      console.log(`✅ BROADCASTED GLOBALLY`);
+    }
+
+    return res.json({ fileUrl });
+  } catch (err) {
+    console.error("Voice upload error:", err);
+    return res.status(500).json({ error: "DB error" });
+  }
+});
+
+// CLEAR PRIVATE CHAT - ONE-SIDED DENGAN TIMESTAMP
+app.delete("/api/chat/clear/private/:contactId", authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const contactId = req.params.contactId;
+
+  try {
+    // SIMPAN TIMESTAMP CLEAR (bukan hapus fisik)
+    await pool.query(
+      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, ?, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+      [userId, contactId]
+    );
+
+    console.log(`✅ ONE-SIDED CLEAR: User ${userId} cleared chat with contact ${contactId} at ${new Date()}`);
+
+    return res.json({ 
+      success: true,
+      message: "Chat berhasil dibersihkan (hanya untuk Anda)" 
+    });
+  } catch (err) {
+    console.error('Clear chat error:', err);
+    return res.status(500).json({ error: "Database error" });
+  }
+});
+
+// CLEAR ROOM CHAT - ONE-SIDED DENGAN TIMESTAMP
+app.delete("/api/chat/clear/room/:roomId", authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const roomId = req.params.roomId;
+  
+  try {
+    await pool.query(
+      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, ?, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+      [userId, roomId]
+    );
+
+    console.log(`✅ ONE-SIDED CLEAR ROOM: User ${userId} cleared room ${roomId} at ${new Date()}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "DB error" });
+  }
+});
+
+// CLEAR GLOBAL CHAT - ONE-SIDED DENGAN TIMESTAMP
+app.delete("/api/chat/clear/global", authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    await pool.query(
+      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+      [userId]
+    );
+
+    console.log(`✅ ONE-SIDED CLEAR GLOBAL: User ${userId} cleared global chat at ${new Date()}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "DB error" });
+  }
+});
+
 // -------------------------
 // WEBSOCKET server
 // -------------------------
-const server = http.createServer(app);
-const wss = new WebSocketServer({ path: "/ws", server });
+const server = https.createServer(options, app);
+const wss = new WebSocketServer({ 
+  server,
+  path: "/ws"
+});
 
 // Map of ws -> { userId, username }
 const clients = new Map();
 
-// helper: broadcast to all connected clients
 // helper: broadcast to all connected clients dengan debug
 function broadcastAll(obj) {
   const msg = JSON.stringify(obj);
@@ -301,7 +533,7 @@ function broadcastAll(obj) {
 
 wss.on('connection', async (ws, req) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, `https://${req.headers.host}`);
     const token = url.searchParams.get('token');
     if (!token) {
       ws.close();
@@ -580,230 +812,7 @@ function createStorage(subFolder) {
   });
 }
 
-const uploadImage = multer({ storage: createStorage("images") });
-const uploadVoice = multer({ storage: createStorage("voices") });
-
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-app.post("/api/upload/image", authMiddleware, uploadImage.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file" });
-
-  const senderId = req.user.id;
-  const roomId = req.body.roomId || null;
-  const recipientId = req.body.recipientId || null;
-  const fileUrl = "/uploads/images/" + req.file.filename;
-
-  try {
-    // Simpan ke database
-    const [result] = await pool.query(
-      `INSERT INTO messages (sender_id, room_id, recipient_id, file_url, file_type)
-       VALUES (?, ?, ?, ?, ?)`,
-      [senderId, roomId, recipientId, fileUrl, "image"]
-    );
-
-    const messageId = result.insertId;
-
-    console.log('📤 IMAGE UPLOAD SAVED:', { 
-      messageId, senderId, roomId, recipientId, fileUrl 
-    });
-
-    // Dapatkan username untuk response
-    const [[user]] = await pool.query('SELECT username FROM users WHERE id = ?', [senderId]);
-    const username = user.username;
-
-    // 🔥 PERBAIKI: Broadcast yang lebih robust
-    const messageData = {
-      type: "file_message",
-      message: {
-        id: messageId,
-        sender_id: senderId,
-        username: username,
-        file_url: fileUrl,
-        file_type: "image",
-        room_id: roomId,
-        recipient_id: recipientId,
-        created_at: new Date().toISOString()
-      }
-    };
-
-    console.log('📨 BROADCASTING FILE MESSAGE:', messageData);
-
-    // Logic broadcast yang lebih baik
-    if (roomId) {
-      // Room message - broadcast ke semua yang di room
-      broadcastAll(messageData);
-      console.log(`✅ BROADCASTED to ROOM ${roomId}`);
-    } else if (recipientId) {
-      // Private message - kirim hanya ke sender dan recipient
-      let sentCount = 0;
-      for (const [clientWS, clientInfo] of clients) {
-        if (clientWS.readyState === clientWS.OPEN) {
-          const shouldSend = 
-            clientInfo.userId === senderId || 
-            clientInfo.userId === Number(recipientId);
-          
-          if (shouldSend) {
-            clientWS.send(JSON.stringify(messageData));
-            sentCount++;
-            console.log(`✅ SENT to user ${clientInfo.userId} (${clientInfo.username})`);
-          }
-        }
-      }
-      console.log(`✅ PRIVATE FILE: Sent to ${sentCount} users`);
-    } else {
-      // Global message
-      broadcastAll(messageData);
-      console.log(`✅ BROADCASTED GLOBALLY`);
-    }
-
-    return res.json({ fileUrl });
-  } catch (err) {
-    console.error("Image upload error:", err);
-    return res.status(500).json({ error: "DB error" });
-  }
-});
-
-// UPLOAD VOICE - PERBAIKI Private Message Broadcast
-app.post("/api/upload/voice", authMiddleware, uploadVoice.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file" });
-
-  const senderId = req.user.id;
-  const roomId = req.body.roomId || null;
-  const recipientId = req.body.recipientId || null;
-  const fileUrl = "/uploads/voices/" + req.file.filename;
-
-  try {
-    // Simpan ke database
-    const [result] = await pool.query(
-      `INSERT INTO messages (sender_id, room_id, recipient_id, file_url, file_type)
-       VALUES (?, ?, ?, ?, ?)`,
-      [senderId, roomId, recipientId, fileUrl, "audio"]
-    );
-
-    const messageId = result.insertId;
-
-    console.log('📤 VOICE UPLOAD SAVED:', { 
-      messageId, senderId, roomId, recipientId, fileUrl 
-    });
-
-    // Dapatkan username untuk response
-    const [[user]] = await pool.query('SELECT username FROM users WHERE id = ?', [senderId]);
-    const username = user.username;
-
-    // 🔥 PERBAIKI: Broadcast yang lebih robust
-    const messageData = {
-      type: "file_message",
-      message: {
-        id: messageId,
-        sender_id: senderId,
-        username: username,
-        file_url: fileUrl,
-        file_type: "audio",
-        room_id: roomId,
-        recipient_id: recipientId,
-        created_at: new Date().toISOString()
-      }
-    };
-
-    console.log('📨 BROADCASTING VOICE MESSAGE:', messageData);
-
-    // Logic broadcast yang lebih baik
-    if (roomId) {
-      // Room message
-      broadcastAll(messageData);
-      console.log(`✅ BROADCASTED to ROOM ${roomId}`);
-    } else if (recipientId) {
-      // Private message - kirim hanya ke sender dan recipient
-      let sentCount = 0;
-      for (const [clientWS, clientInfo] of clients) {
-        if (clientWS.readyState === clientWS.OPEN) {
-          const shouldSend = 
-            clientInfo.userId === senderId || 
-            clientInfo.userId === Number(recipientId);
-          
-          if (shouldSend) {
-            clientWS.send(JSON.stringify(messageData));
-            sentCount++;
-            console.log(`✅ SENT to user ${clientInfo.userId} (${clientInfo.username})`);
-          }
-        }
-      }
-      console.log(`✅ PRIVATE VOICE: Sent to ${sentCount} users`);
-    } else {
-      // Global message
-      broadcastAll(messageData);
-      console.log(`✅ BROADCASTED GLOBALLY`);
-    }
-
-    return res.json({ fileUrl });
-  } catch (err) {
-    console.error("Voice upload error:", err);
-    return res.status(500).json({ error: "DB error" });
-  }
-});
-
-// CLEAR PRIVATE CHAT - HAPUS FISIK TAPI ONE-SIDED
-// CLEAR PRIVATE CHAT - ONE-SIDED DENGAN TIMESTAMP
-app.delete("/api/chat/clear/private/:contactId", authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  const contactId = req.params.contactId;
-
-  try {
-    // SIMPAN TIMESTAMP CLEAR (bukan hapus fisik)
-    await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, ?, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
-      [userId, contactId]
-    );
-
-    console.log(`✅ ONE-SIDED CLEAR: User ${userId} cleared chat with contact ${contactId} at ${new Date()}`);
-
-    return res.json({ 
-      success: true,
-      message: "Chat berhasil dibersihkan (hanya untuk Anda)" 
-    });
-  } catch (err) {
-    console.error('Clear chat error:', err);
-    return res.status(500).json({ error: "Database error" });
-  }
-});
-
-// CLEAR ROOM CHAT - ONE-SIDED DENGAN TIMESTAMP
-app.delete("/api/chat/clear/room/:roomId", authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  const roomId = req.params.roomId;
-  
-  try {
-    await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, ?, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
-      [userId, roomId]
-    );
-
-    console.log(`✅ ONE-SIDED CLEAR ROOM: User ${userId} cleared room ${roomId} at ${new Date()}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-// CLEAR GLOBAL CHAT - ONE-SIDED DENGAN TIMESTAMP
-app.delete("/api/chat/clear/global", authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  
-  try {
-    await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
-      [userId]
-    );
-
-    console.log(`✅ ONE-SIDED CLEAR GLOBAL: User ${userId} cleared global chat at ${new Date()}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "DB error" });
-  }
-});
 // start server
-server.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on https://0.0.0.0:${PORT}`);
 });
