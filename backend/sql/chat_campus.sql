@@ -41,5 +41,16 @@ CREATE TABLE IF NOT EXISTS messages (
   INDEX idx_sender (sender_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_chat_clears (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  room_id INT NULL,
+  contact_id INT NULL,
+  cleared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_user_clear (user_id, room_id, contact_id)
+);
+
+
 -- optional: quick indexes
-CREATE INDEX IF NOT EXISTS idx_messages_roomid_id ON messages(room_id, id);
+-- CREATE INDEX IF NOT EXISTS idx_messages_roomid_id ON messages(room_id, id);

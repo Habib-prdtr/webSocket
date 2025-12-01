@@ -45,15 +45,55 @@
       <div class="chatTitle" id="chatTitle">Global</div>
       <div class="chatSubtitle" id="chatSubtitle">Public global chat</div>
     </div>
+
+    <!-- TOMBOL BERSIHKAN CHAT (tambah ini) -->
+    <div style="margin-left:auto;">
+      <button id="btnClearChat" class="btn danger" style="display:none">Bersihkan</button>
+    </div>
   </header>
+
 
   <section id="messages" class="messages"></section>
 
   <div class="inputArea">
-    <input id="messageInput" class="messageInput" placeholder="Type a message..." autocomplete="off" />
+    <input 
+      id="imageInput" 
+      type="file" 
+      accept="image/*" 
+      style="display:none"
+    />
+
+    <button class="iconBtn" id="btnImage">🖼️</button>
+
+    <div id="recordPopup" class="record-popup hidden">
+      🎤 Recording <span id="recordTimer">0:00</span>
+      <button id="btnCancelRecord" class="cancel-record">✖</button>
+    </div>
+    <button class="iconBtn" id="btnVoice">🎤</button>
+
+    <input 
+      id="messageInput" 
+      class="messageInput" 
+      placeholder="Type a message..." 
+      autocomplete="off"
+    />
+
     <button id="btnSend" class="sendBtn">Send</button>
   </div>
 </main>
+
+<!-- Call Container -->
+<div id="callContainer">
+  <div id="callerName" style="font-weight: bold; margin-bottom: 10px;"></div>
+  <div id="callStatus">Memanggil...</div>
+  <audio id="localAudio" muted></audio>
+  <audio id="remoteAudio" autoplay></audio>
+  <div class="call-buttons">
+    <button id="btnAnswerCall">Terima</button>
+    <button id="btnRejectCall">Tolak</button>
+    <button id="btnEndCall">Akhiri</button>
+  </div>
+</div>
 
 <!-- Script -->
 <script src="chat.js"></script>

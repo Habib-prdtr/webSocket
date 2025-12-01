@@ -95,3 +95,224 @@ body{
 /* small text */
 .muted{color:var(--muted);font-size:13px}
 .small{font-size:13px;color:var(--muted)}
+
+/* ---------- Login Page ---------- */
+.authBox {
+  width: 360px;
+  padding: 26px 30px;
+  background: var(--panel);
+  border: 1px solid #222;
+  border-radius: 12px;
+  margin: auto;
+  margin-top: 10vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 0 18px #0006;
+  text-align: center;
+}
+
+.authBox h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+
+.authBox input {
+  background: #262626;
+  border: 1px solid #222;
+  color: #e6eef1;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+}
+
+.authBox button {
+  background: var(--accent);
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  color: white;
+  font-size: 15px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: opacity 0.2s;
+}
+
+.authBox button:hover {
+  opacity: 0.85;
+}
+
+.authBox a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.authBox a:hover {
+  text-decoration: underline;
+}
+
+.authBox p {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.iconBtn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.iconBtn:hover {
+  opacity: .7;
+}
+
+.messages img {
+  max-width: 200px;
+  border-radius: 8px;
+  margin: 5px 0;
+}
+
+.messages audio {
+  width: 200px;
+  margin: 5px 0;
+}
+
+.record-popup {
+  position: absolute;
+  bottom: 60px;
+  left: 10px;
+  background: #ff3b30;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.hidden {
+  display: none;
+}
+.cancel-record {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+}
+.iconBtn.recording {
+  background: #ff3b30 !important;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: .4; }
+  100% { opacity: 1; }
+}
+
+.iconBtn.small {
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.iconBtn.danger {
+  background: #d9534f;
+  color: white;
+}
+.iconBtn.danger:hover {
+  background: #a94442;
+}
+
+/* Call Container */
+#callContainer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 1000;
+  text-align: center;
+  display: none;
+  min-width: 300px;
+}
+
+#callStatus {
+  font-size: 18px;
+  margin-bottom: 15px;
+  font-weight: bold;
+}
+
+.call-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.call-buttons button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#btnAnswerCall {
+  background: #4CAF50;
+  color: white;
+}
+
+#btnRejectCall, #btnEndCall {
+  background: #f44336;
+  color: white;
+}
+
+/* User List dengan tombol panggilan */
+.userItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.user-info {
+  flex: 1;
+}
+
+.user-actions {
+  margin-left: 10px;
+}
+
+.btn-call {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-call:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-call:hover:not(:disabled) {
+  background: #45a049;
+}
+
+/* Audio elements (hidden) */
+#localAudio, #remoteAudio {
+  display: none;
+}
