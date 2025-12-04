@@ -316,3 +316,40 @@ body{
 #localAudio, #remoteAudio {
   display: none;
 }
+
+/* Tambah di CSS Anda */
+.userStatus {
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  display: inline-block;
+  margin-left: 5px;
+}
+
+.userStatus.online {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.userStatus.offline {
+  background-color: #f44336;
+  color: white;
+}
+
+/* Animasi untuk status update */
+.userStatus {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.btn-call:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status.online {
+  color: #00e676; /* hijau online */
+}
+
+.status.offline {
+  color: #ff5252; /* merah offline */
+}
