@@ -69,6 +69,8 @@ const localAudio = document.getElementById("localAudio");
 const remoteAudio = document.getElementById("remoteAudio");
 const callerName = document.getElementById("callerName");
 
+let userList = [];
+
 // Tambahkan event listener untuk panggilan
 if (btnAnswerCall) btnAnswerCall.addEventListener("click", answerCall);
 if (btnRejectCall) btnRejectCall.addEventListener("click", rejectCall);
@@ -216,26 +218,49 @@ function renderRooms(list) {
 
 function renderUsers(list) {
   usersListEl.innerHTML = "";
+  userList = list;
 
   list
     .filter(u => u.id !== myId)
     .forEach((u) => {
       const el = document.createElement("div");
       el.className = "userItem";
+      el.setAttribute('data-user-id', u.id); // konsisten
       el.innerHTML = `
         <div class="user-info">
-          <div>${u.username}</div>
-          <div class="userStatus">${u.is_online ? "online" : "offline"}</div>
+          <div class="username">${u.username}</div>
+          <div class="userStatus ${u.is_online ? 'online' : 'offline'}">
+            ${u.is_online ? 'online' : 'offline'}
+          </div>
         </div>
         <div class="user-actions">
-          <button class="btn-call" onclick="startCall(${u.id})" ${!u.is_online ? 'disabled' : ''}>📞</button>
+          <button class="btn-call" 
+                  data-target-id="${u.id}"
+                  ${!u.is_online ? 'disabled' : '' }
+                  title="${u.is_online ? 'Telepon' : 'User offline'}">
+            📞
+          </button>
         </div>
       `;
-      el.onclick = () =>
+      // klik area untuk open private chat
+      el.addEventListener('click', (ev) => {
+        // jangan trigger when click call button
+        if (ev.target.closest('.btn-call')) return;
         setContext({ type: "private", userId: u.id, username: u.username });
+      });
+
+      // call button handler (separate)
+      const btn = el.querySelector('.btn-call');
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (!u.is_online) return;
+        startCall(u.id);
+      });
+
       usersListEl.appendChild(el);
     });
 }
+
 
 async function setContext(ctx) {
   // Jangan clear messages di sini - biarkan proses load yang handle
@@ -399,12 +424,17 @@ function handleWS(data) {
       console.log('📁 FILE MESSAGE RECEIVED:', data.message);
       if (data.message && shouldShowMessageForContext(data.message)) {
         console.log('✅ RENDERING FILE MESSAGE');
-        // Pastikan username ada
         data.message.username = data.message.username || (data.message.sender_id === myId ? myUsername : currentContext.username);
         renderMessage(data.message);
       } else {
         console.log('❌ FILE MESSAGE FILTERED OUT - Context mismatch');
       }
+      break;
+
+    // TAMBAHKAN CASE BARU UNTUK USER STATUS
+    case "user_status":
+      console.log('🔄 User status update:', data.userId, data.isOnline ? 'online' : 'offline');
+      updateUserStatus(data.userId, data.isOnline);
       break;
 
     case "call_offer":
@@ -439,6 +469,28 @@ function handleWS(data) {
       alert("Panggilan gagal: " + data.reason);
       cleanupCall();
       break;
+
+    case "user_online":
+    case "user_offline": {
+      // server kadang mengirim { type:'user_online', user: { id, username } }
+      // atau { type:'user_online', userId: 5 }
+      const uid = data.user?.id ?? data.userId;
+      const isOnline = (data.type === 'user_online');
+      if (!uid) {
+        console.warn('user_online event missing id', data);
+        break;
+      }
+      if (uid === myId) {
+        // ignore updates about self (server also sends your own online on connect)
+        console.log('🟡 Ignore self online/offline update for', uid);
+        break;
+      }
+      console.log((isOnline ? '🔵' : '⚪'), 'User', uid, isOnline ? 'online' : 'offline');
+      updateUserStatus(uid, isOnline);
+      // also update stored userList so periodic checker has correct baseline
+      userList = userList.map(u => u.id === uid ? {...u, is_online: isOnline} : u);
+      break;
+    }
 
     default:
       console.log('❓ UNKNOWN WS MESSAGE TYPE:', data.type);
@@ -779,6 +831,35 @@ async function startCall(targetUserId) {
   }
 }
 
+function startStatusChecker() {
+  // Update status setiap 30 detik
+  setInterval(async () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    
+    try {
+      const res = await fetch(API_ROOT + "/init", {
+        headers: { Authorization: "Bearer " + token },
+      });
+      const data = await res.json();
+      
+      // Bandingkan dengan status yang ada
+      data.users.forEach(newUser => {
+        const oldUser = userList.find(u => u.id === newUser.id);
+        if (oldUser && oldUser.is_online !== newUser.is_online) {
+          // Status berubah, update UI
+          updateUserStatus(newUser.id, newUser.is_online);
+        }
+      });
+      
+      // Update stored list
+      userList = data.users;
+      
+    } catch (error) {
+      console.error('Status check error:', error);
+    }
+  }, 30000); // 30 detik
+}
+
 // Fungsi untuk menjawab panggilan
 // Fungsi untuk menjawab panggilan - YANG DIPERBAIKI
 async function answerCall() {
@@ -997,9 +1078,37 @@ async function handleICECandidate(data) {
   }
 }
 
+// Fungsi untuk update status user di UI
+function updateUserStatus(userId, isOnline) {
+  // cari .userItem dengan data-user-id yang sesuai
+  const userEl = document.querySelector(`.userItem[data-user-id="${userId}"]`);
+  if (!userEl) {
+    console.log('user element not found for', userId);
+    return;
+  }
+
+  const statusEl = userEl.querySelector('.userStatus');
+  const callBtn = userEl.querySelector('.btn-call');
+
+  if (statusEl) {
+    statusEl.textContent = isOnline ? 'online' : 'offline';
+    statusEl.classList.toggle('online', isOnline);
+    statusEl.classList.toggle('offline', !isOnline);
+  }
+
+  if (callBtn) {
+    callBtn.disabled = !isOnline;
+    callBtn.title = isOnline ? 'Telepon' : 'User offline';
+  }
+}
+
+
 (async function init() {
   // initial UI state
   updateClearBtnVisibility();
   await loadInit();
   connectWS();
+  
+  // Start periodic status checker
+  startStatusChecker();
 })();

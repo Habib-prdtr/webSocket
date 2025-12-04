@@ -43,6 +43,11 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+(async () => {
+  await pool.query("UPDATE users SET is_online = 0");
+  console.log("🔄 Semua user diset offline saat server start");
+})();
+
 // Helper: sign token
 function generateToken(payload) {
   return jwt.sign(payload, SECRET, { expiresIn: '7d' });
@@ -531,6 +536,18 @@ function broadcastAll(obj) {
   console.log(`📢 BROADCAST: ${obj.type} to ${sentCount} clients`);
 }
 
+function broadcastUserStatus(userId, isOnline, username = null) {
+  const statusData = {
+    type: 'user_status',
+    userId: userId,
+    isOnline: isOnline,
+    username: username
+  };
+  
+  console.log(`📢 Broadcasting user status: User ${userId} (${username || 'unknown'}) ${isOnline ? 'online' : 'offline'}`);
+  broadcastAll(statusData);
+}
+
 wss.on('connection', async (ws, req) => {
   try {
     const url = new URL(req.url, `https://${req.headers.host}`);
@@ -554,14 +571,26 @@ wss.on('connection', async (ws, req) => {
     // mark online in DB
     await pool.query('UPDATE users SET is_online = 1 WHERE id = ?', [user.id]);
 
-    // notify all clients
-    broadcastAll({ type: 'user_online', user: { id: user.id, username: user.username } });
+    broadcastAll({
+      type: "user_online",
+      userId: user.id,
+      username: user.username
+    });
 
     // send init payload (rooms + users)
     const [rooms] = await pool.query('SELECT id, name FROM rooms ORDER BY id ASC');
     const [users] = await pool.query('SELECT id, username, is_online FROM users ORDER BY username ASC');
 
     ws.send(JSON.stringify({ type: 'init', rooms, users }));
+
+    for (const u of users) {
+      if (u.id === user.id) continue;
+      ws.send(JSON.stringify({
+        type: u.is_online ? "user_online" : "user_offline",
+        userId: u.id,
+        username: u.username
+      }));
+    }
 
     // handle messages from this ws
     ws.on('message', async (raw) => {
@@ -775,10 +804,16 @@ wss.on('connection', async (ws, req) => {
 
     ws.on('close', async () => {
       clients.delete(ws);
+
       try {
-        await pool.query('UPDATE users SET is_online = 0 WHERE id = ?', [user.id]);
-      } catch (e) { /* ignore */ }
-      broadcastAll({ type: 'user_offline', user: { id: user.id } });
+        await pool.query("UPDATE users SET is_online = 0 WHERE id = ?", [user.id]);
+        console.log(`🔴 User ${user.id} Offline`);
+      } catch (e) {}
+
+      broadcastAll({
+        type: "user_offline",
+        userId: user.id
+      });
     });
 
   } catch (e) {
