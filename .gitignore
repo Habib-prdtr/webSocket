@@ -1,2 +1,20 @@
-backend/uploads/
-backend/*.pem
+# Dependency (Sangat penting agar repo tidak berat)
+node_modules/
+
+# File Konfigurasi Sensitif (Penting untuk keamanan!)
+.env
+
+# Sertifikat SSL/Localhost Keys (Penting untuk keamanan!)
+backend/localhost-key.pem
+backend/localhost.pem
+
+# File Log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Mengabaikan semua isi di dalam folder uploads
+backend/uploads/**/*
+
+# Kecuali file .gitkeep agar folder kosongnya tetap terupload ke GitHub
+!backend/uploads/**/.gitkeep

@@ -267,7 +267,6 @@ export function renderRooms(list, setContextCallback) {
   });
 }
 
-// CONTACTS RENDERING
 export function renderContacts(list, setContextCallback, startCallCallback) {
   if (!elements.contactsListEl) return;
   
@@ -282,95 +281,53 @@ export function renderContacts(list, setContextCallback, startCallCallback) {
         </button>
       </div>
     `;
-    
-    const btn = document.getElementById('btnAddFirstContact');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        if (window.showAddContactModal) window.showAddContactModal();
-      });
-    }
     return;
   }
 
   list.forEach((contact) => {
     const el = document.createElement("div");
-    el.className = "contactItem p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors";
+    el.className = "contactItem p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-b-0";
     el.setAttribute('data-contact-id', contact.contact_id || contact.id);
+    
+    // SIMPAN DATA DI DATASET - INI YANG PENTING
+    el.dataset.contactId = contact.contact_id || contact.id;
+    el.dataset.username = contact.username || '';
     
     const lastSeen = contact.last_seen ? 
       new Date(contact.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 
       '';
     
+    const isOnline = contact.is_online || false;
+    
     el.innerHTML = `
       <div class="flex items-center justify-between w-full">
         <!-- INFO -->
-        <div class="flex flex-col flex-1 min-w-0">
-          <div class="font-semibold text-slate-800 truncate" data-username="${contact.username}">
+        <div class="flex flex-col flex-1 min-w-0 mr-3">
+          <div class="font-semibold text-slate-800 truncate contact-username" data-username="${contact.username}">
             ${contact.username}
           </div>
           <div class="flex items-center gap-2 text-xs text-slate-400">
-            <span class="inline-block w-2 h-2 rounded-full ${contact.is_online ? 'bg-green-500' : 'bg-slate-400'}"></span>
-            <span>${contact.is_online ? 'Online' : `Last seen ${lastSeen}`}</span>
+            <span class="inline-block w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-slate-400'}"></span>
+            <span class="contact-status">${isOnline ? 'Online' : `Last seen ${lastSeen}`}</span>
           </div>
         </div>
 
         <!-- ACTIONS -->
-        <div class="flex gap-2 ml-2">
-          <button class="btn-call-contact ${contact.is_online ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300 cursor-not-allowed'} text-white text-sm px-3 py-1 rounded-lg transition" data-contact-id="${contact.contact_id || contact.id}" ${!contact.is_online ? 'disabled' : ''} title="${contact.is_online ? 'Call' : 'Offline'}">
+        <div class="flex gap-2">
+          <button class="btn-call-contact ${isOnline ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300 cursor-not-allowed'} text-white text-sm px-3 py-1 rounded-lg transition" 
+                  data-contact-id="${contact.contact_id || contact.id}"
+                  ${!isOnline ? 'disabled' : ''}
+                  title="${isOnline ? 'Call' : 'Offline'}">
             📞
           </button>
-          <button class="btn-remove-contact bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded-lg transition" data-contact-id="${contact.contact_id || contact.id}" title="Remove contact">
+          <button class="btn-remove-contact bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded-lg transition" 
+                  data-contact-id="${contact.contact_id || contact.id}"
+                  title="Remove contact">
             🗑️
           </button>
         </div>
       </div>
     `;
-    
-    // Click untuk chat - PERBAIKAN DISINI
-    el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.btn-call-contact') || ev.target.closest('.btn-remove-contact')) return;
-      
-      // PERBAIKAN: Ambil username dari data attribute atau text yang sudah di-trim
-      const usernameEl = el.querySelector('[data-username]');
-      const username = usernameEl ? usernameEl.getAttribute('data-username') : 
-                     el.querySelector('.font-semibold')?.textContent?.trim() || '';
-      
-      const contactId = contact.contact_id || contact.id;
-      
-      console.log('💬 Contact clicked:', { contactId, username: username });
-      
-      if (window.setContext) {
-        window.setContext({
-          type: "private",
-          userId: contactId,
-          username: username
-        });
-      }
-    });
-    
-    // Call button
-    const callBtn = el.querySelector('.btn-call-contact');
-    if (callBtn) {
-      callBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (!contact.is_online) return;
-        startCallCallback(contact.contact_id || contact.id);
-      });
-    }
-    
-    // Remove button
-    const removeBtn = el.querySelector('.btn-remove-contact');
-    if (removeBtn) {
-      removeBtn.addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        const username = contact.username || el.querySelector('.font-semibold')?.textContent?.trim() || '';
-        if (!confirm(`Remove ${username} from contacts?`)) return;
-        
-        if (window.removeContact) {
-          await window.removeContact(contact.contact_id || contact.id);
-        }
-      });
-    }
     
     elements.contactsListEl.appendChild(el);
   });
@@ -598,16 +555,17 @@ export function renderSearchResults(users) {
 
 export function updateUserStatus(userId, isOnline) {
   // Update di contacts list
-  const contactEl = document.querySelector(`.contactItem[data-contact-id="${userId}"]`);
-  if (contactEl) {
-    const statusDot = contactEl.querySelector('.status-dot');
-    const statusText = contactEl.querySelector('.status-text');
-    const callBtn = contactEl.querySelector('.btn-call-contact');
-    
+  const contactEls = document.querySelectorAll(`.contactItem[data-contact-id="${userId}"]`);
+  
+  contactEls.forEach(contactEl => {
+    // Update status dot
+    const statusDot = contactEl.querySelector('.w-2.h-2.rounded-full');
     if (statusDot) {
-      statusDot.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+      statusDot.className = `inline-block w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-slate-400'}`;
     }
     
+    // Update status text
+    const statusText = contactEl.querySelector('.contact-status');
     if (statusText) {
       if (isOnline) {
         statusText.textContent = 'Online';
@@ -617,11 +575,22 @@ export function updateUserStatus(userId, isOnline) {
       }
     }
     
+    // Update call button
+    const callBtn = contactEl.querySelector('.btn-call-contact');
     if (callBtn) {
-      callBtn.disabled = !isOnline;
-      callBtn.title = isOnline ? 'Call' : 'Offline';
+      if (isOnline) {
+        callBtn.classList.remove('bg-slate-300', 'cursor-not-allowed');
+        callBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+        callBtn.disabled = false;
+        callBtn.title = 'Call';
+      } else {
+        callBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+        callBtn.classList.add('bg-slate-300', 'cursor-not-allowed');
+        callBtn.disabled = true;
+        callBtn.title = 'Offline';
+      }
     }
-  }
+  });
 }
 
 export function updateChatTitle(title, subtitle) {
@@ -952,7 +921,70 @@ export function setupStaticEventListeners() {
 // EVENT DELEGATION untuk DYNAMIC ELEMENTS
 export function setupEventDelegation() {
   console.log('🔧 Setting up EVENT DELEGATION...');
-  
+
+  // 1. Delegasi untuk kontak list - HANYA INI YANG MENANGANI
+  if (elements.contactsListEl) {
+    // Hapus event listener lama
+    elements.contactsListEl.replaceWith(elements.contactsListEl.cloneNode(true));
+    elements.contactsListEl = document.getElementById("contactsList");
+    
+    elements.contactsListEl.addEventListener('click', function(e) {
+      const target = e.target;
+      const contactItem = target.closest('.contactItem');
+      
+      if (!contactItem) {
+        // Tombol "Add your first contact"
+        if (target.id === 'btnAddFirstContact' || target.closest('#btnAddFirstContact')) {
+          console.log('🟡 Add First Contact button clicked');
+          e.stopPropagation();
+          showAddContactModal();
+        }
+        return;
+      }
+      
+      const contactId = contactItem.dataset.contactId;
+      const username = contactItem.dataset.username || 
+                      contactItem.querySelector('[data-username]')?.getAttribute('data-username') ||
+                      contactItem.querySelector('.contact-username')?.textContent?.trim() || '';
+      
+      // Tombol call contact
+      if (target.classList.contains('btn-call-contact') || target.closest('.btn-call-contact')) {
+        console.log('📞 Call contact clicked:', contactId);
+        e.stopPropagation();
+        
+        const isOnline = !target.disabled;
+        if (isOnline && window.startCall && contactId) {
+          window.startCall(contactId);
+        }
+        return;
+      }
+      
+      // Tombol remove contact
+      if (target.classList.contains('btn-remove-contact') || target.closest('.btn-remove-contact')) {
+        console.log('🗑️ Remove contact clicked:', contactId);
+        e.stopPropagation();
+        
+        if (confirm(`Remove ${username} from contacts?`)) {
+          if (window.removeContact && contactId) {
+            window.removeContact(contactId);
+          }
+        }
+        return;
+      }
+      
+      // Click pada contact item (bukan tombol)
+      console.log('💬 Contact clicked for chat:', { contactId, username });
+      
+      if (window.setContext && contactId && username) {
+        window.setContext({
+          type: "private",
+          userId: contactId,
+          username: username.trim()
+        });
+      }
+    });
+  }
+
   // ==================== DELEGASI UNTUK MODAL CLOSE ====================
   // Backup: delegasi global untuk tombol close
   document.addEventListener('click', function(e) {

@@ -401,66 +401,79 @@ async function setContext(ctx) {
   }
 
   if (ctx.type === "private") {
-    updateChatTitle("Private — " + ctx.username, "Direct message");
+    // FIXED: Bersihkan username
+    const cleanUsername = ctx.username ? ctx.username.trim() : '';
+    const userId = ctx.userId;
+    
+    console.log('🔒 Starting private chat with:', { 
+      userId, 
+      username: cleanUsername
+    });
+    
+    updateChatTitle("Private — " + cleanUsername, "Direct message");
 
     try {
-      const res = await fetch(
-        `${API_ROOT}/private/${encodeURIComponent(myUsername)}/${encodeURIComponent(ctx.username)}`,
-        { headers: { Authorization: "Bearer " + token } }
-      );
+      // ENDPOINT YANG BENAR (berdasarkan test):
+      // /api/private/{myUsername}/{targetUsername}
+      const endpoint = `${API_ROOT}/private/${encodeURIComponent(myUsername)}/${encodeURIComponent(cleanUsername)}`;
+      
+      console.log('📡 Fetching from endpoint:', endpoint);
+      
+      const res = await fetch(endpoint, { 
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        } 
+      });
+      
+      console.log('📡 Response status:', res.status, res.statusText);
       
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || `HTTP ${res.status}: ${res.statusText}`);
+        const errorText = await res.text();
+        let errorMessage = `HTTP ${res.status}: ${res.statusText}`;
+        
+        // Coba parse error message
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          // Jika bukan JSON, gunakan teks asli
+          if (errorText && errorText.length < 200) {
+            errorMessage = errorText;
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
       
       const json = await res.json();
+      console.log('📦 Private messages loaded:', json.messages?.length || 0, 'messages');
       
       clearMessages();
-      (json.messages || []).forEach(renderMessage);
-    } catch (error) {
-      console.error('Error loading private messages:', error);
-      clearMessages();
       
-      const errorMsg = document.createElement("div");
-      errorMsg.className = "system-message error";
-      errorMsg.textContent = "Error: " + error.message;
-      if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
-      
-      // Jika error karena bukan kontak, show suggestion
-      if (error.message.includes('contact')) {
-        const suggestion = document.createElement("div");
-        suggestion.className = `
-          system-message info
-          flex flex-col gap-3
-          p-4 mt-3
-          rounded-xl
-          bg-blue-50 dark:bg-blue-900/20
-          border border-blue-200 dark:border-blue-700
-          text-center
-        `;
-
-        suggestion.innerHTML = `
-          <p class="text-sm text-blue-700 dark:text-blue-300">
-            You need to add this user as a contact first.
-          </p>
-
-          <button
-            id="btnAddThisContact"
-            class="bg-indigo-500 hover:bg-indigo-600
-                  text-white text-sm
-                  px-4 py-2 rounded-full
-                  transition shadow">
-            Add ${ctx.username} as Contact
-          </button>
-        `;
-
-        elements.messagesEl.appendChild(suggestion);
-        
-        document.getElementById('btnAddThisContact')?.addEventListener('click', async () => {
-          await sendContactRequest(ctx.username);
+      if (json.messages && json.messages.length > 0) {
+        json.messages.forEach(m => {
+          // Tambahkan username jika tidak ada
+          if (!m.username) {
+            m.username = m.sender_id === myId ? myUsername : cleanUsername;
+          }
+          renderMessage(m);
         });
+      } else {
+        // Tampilkan pesan kosong
+        const emptyMsg = document.createElement("div");
+        emptyMsg.className = "system-message info text-center py-8 text-slate-400 text-sm";
+        emptyMsg.innerHTML = `
+          <div class="mb-2">💬</div>
+          <div>No messages yet with ${cleanUsername}</div>
+          <div class="text-xs mt-1 text-slate-500">Send a message to start the conversation</div>
+        `;
+        if (elements.messagesEl) elements.messagesEl.appendChild(emptyMsg);
       }
+      
+    } catch (error) {
+      console.error('❌ Error loading private messages:', error);
+      handlePrivateChatError(error, cleanUsername);
     }
 
     updateClearBtnVisibility();
@@ -468,6 +481,83 @@ async function setContext(ctx) {
   }
 
   updateClearBtnVisibility();
+}
+
+// Helper function untuk handle error
+function handlePrivateChatError(error, username) {
+  clearMessages();
+  
+  const errorMsg = document.createElement("div");
+  errorMsg.className = "system-message error p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 mb-3";
+  
+  if (error.message.includes('404')) {
+    errorMsg.innerHTML = `
+      <div class="font-medium">Cannot Start Chat</div>
+      <div class="text-sm mt-1">Unable to load conversation with ${username}.</div>
+      <div class="text-xs mt-2 text-red-600">Make sure this user exists and you are connected.</div>
+    `;
+  } else if (error.message.includes('contact')) {
+    errorMsg.innerHTML = `
+      <div class="font-medium">Contact Required</div>
+      <div class="text-sm mt-1">You need to add ${username} as a contact first.</div>
+    `;
+  } else {
+    errorMsg.innerHTML = `
+      <div class="font-medium">Error Loading Messages</div>
+      <div class="text-sm mt-1">${error.message}</div>
+    `;
+  }
+  
+  if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
+  
+  // Tampilkan tombol untuk add contact jika error karena bukan kontak
+  if (error.message.includes('contact') || error.message.includes('404')) {
+    const suggestion = document.createElement("div");
+    suggestion.className = "system-message info flex flex-col gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200 text-center";
+    
+    suggestion.innerHTML = `
+      <div class="text-sm text-blue-700">
+        ${error.message.includes('404') ? 
+          `The user "${username}" may not exist or you don't have permission to chat.` : 
+          `Add ${username} as a contact to start chatting.`}
+      </div>
+      <button id="btnAddThisContact" class="bg-indigo-500 hover:bg-indigo-600 text-white text-sm px-4 py-2 rounded-full transition shadow">
+        ${error.message.includes('404') ? 'Search User' : `Add ${username} as Contact`}
+      </button>
+    `;
+
+    elements.messagesEl.appendChild(suggestion);
+    
+    // Event listener untuk tombol
+    document.getElementById('btnAddThisContact')?.addEventListener('click', async () => {
+      if (error.message.includes('404')) {
+        // Untuk 404, buka modal search
+        if (window.showAddContactModal) {
+          showAddContactModal();
+          // Isi search input dengan username
+          if (elements.searchContactInput) {
+            elements.searchContactInput.value = username;
+          }
+        }
+      } else {
+        // Untuk contact error, langsung kirim request
+        if (window.sendContactRequest) {
+          const result = await sendContactRequest(username);
+          if (result && result.success) {
+            // Reload contacts
+            if (window.loadContacts) {
+              await window.loadContacts();
+            }
+            // Tampilkan success message
+            const successMsg = document.createElement("div");
+            successMsg.className = "system-message success p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 mt-3";
+            successMsg.textContent = `Contact request sent to ${username}!`;
+            elements.messagesEl.appendChild(successMsg);
+          }
+        }
+      }
+    });
+  }
 }
 
 async function sendMessage() {
