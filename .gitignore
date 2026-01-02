@@ -13,8 +13,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Mengabaikan semua isi di dalam folder uploads
-backend/uploads/**/*
+# Mengabaikan folder uploads di mana pun posisinya dalam proyek
+**/uploads/
 
-# Kecuali file .gitkeep agar folder kosongnya tetap terupload ke GitHub
-!backend/uploads/**/.gitkeep
+# Tetap izinkan file .gitkeep agar folder tidak hilang di GitHub
+!**/uploads/.gitkeep
