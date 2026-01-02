@@ -4,99 +4,313 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ITATS Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="style.css" />
+  <style>
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.2s ease-out;
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: #a1a1a1;
+    }
+    
+    /* Chat bubble styles */
+    .roomItem, .contactItem {
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 2px;
+    }
+    
+    .roomItem:hover, .contactItem:hover {
+      background-color: #f3f4f6;
+    }
+    
+    .roomItem.active, .contactItem.active {
+      background-color: #e0e7ff;
+      color: #4f46e5;
+    }
+    
+    /* Message bubbles */
+    .message.me {
+      align-self: flex-end;
+      background-color: #4f46e5;
+      color: white;
+      border-radius: 18px 18px 4px 18px;
+    }
+    
+    .message.other {
+      align-self: flex-start;
+      background-color: #e5e7eb;
+      color: #1f2937;
+      border-radius: 18px 18px 18px 4px;
+    }
+    
+  </style>
 </head>
-<body>
+<body class="bg-slate-100 h-screen overflow-hidden">
 
-<!-- SIDEBAR -->
-<aside class="sidebar" id="sidebar">
-  <div>
-    <div class="app-title">ITATS Chat</div>
-    <div class="small muted" id="meInfo">—</div>
-  </div>
+<div class="flex h-full">
 
-  <div>
-    <div class="section-title">Rooms</div>
-    <div class="room-create">
-      <input id="newRoomName" class="input" placeholder="Create room..." />
-      <button id="btnCreateRoom" class="btn">Create</button>
-    </div>
-    <div id="roomsList" class="list rooms"></div>
-  </div>
-
-  <div>
-    <div class="section-title">Users</div>
-    <div id="usersList" class="list users"></div>
-  </div>
-
-  <div class="logout-panel">
-    <div class="small muted">Logged as</div>
-    <div id="meName" class="bold"></div>
-    <button id="btnLogout" class="btn danger">Logout</button>
-  </div>
-</aside>
-
-<!-- CHAT AREA -->
-<main class="chatArea">
-  <header class="chatHeader">
-    <div>
-      <div class="chatTitle" id="chatTitle">Global</div>
-      <div class="chatSubtitle" id="chatSubtitle">Public global chat</div>
+  <!-- SIDEBAR -->
+  <aside class="w-80 bg-white border-r flex flex-col">
+    <div class="p-4 border-b">
+      <div class="text-xl font-bold text-indigo-600">ITATS Chat</div>
+      <div class="text-sm text-slate-500" id="meInfo">—</div>
     </div>
 
-    <!-- TOMBOL BERSIHKAN CHAT (tambah ini) -->
-    <div style="margin-left:auto;">
-      <button id="btnClearChat" class="btn danger" style="display:none">Bersihkan</button>
+    <!-- TABS -->
+    <div class="flex border-b text-sm font-medium">
+      <button 
+        data-tab="rooms" 
+        id="btnTabRooms" 
+        class="tab-btn flex-1 py-2 text-indigo-600 border-b-2 border-indigo-600 transition-all duration-200"
+      >
+        Rooms
+      </button>
+      <button 
+        data-tab="contacts" 
+        id="btnTabContacts" 
+        class="tab-btn flex-1 py-2 text-slate-500 transition-all duration-200"
+      >
+        Contacts
+      </button>
+      <button 
+        data-tab="requests" 
+        id="btnTabRequests" 
+        class="tab-btn flex-1 py-2 text-slate-500 relative transition-all duration-200"
+      >
+        Requests
+        <span id="pendingBadge" class="absolute top-1 right-4 bg-red-500 text-white text-xs px-2 rounded-full">0</span>
+      </button>
     </div>
-  </header>
 
+    <!-- TAB CONTENT CONTAINER -->
+    <div id="tabContentContainer" class="flex-1 overflow-y-auto">
+      
+      <!-- ROOMS TAB CONTENT -->
+      <div id="roomsTabContent" class="h-full">
+        <div class="p-3">
+          <div class="text-xs uppercase text-slate-400 mb-2">Chat Rooms</div>
+          <div id="roomsList" class="space-y-1"></div>
+        </div>
+        
+        <div class="p-3 border-t">
+          <div class="flex gap-2">
+            <input 
+              id="newRoomName" 
+              class="flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" 
+              placeholder="New room name"
+            >
+            <button id="btnCreateRoom" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded text-sm transition-colors">
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
 
-  <section id="messages" class="messages"></section>
+      <!-- CONTACTS TAB CONTENT -->
+      <div id="contactsTabContent" class="hidden h-full">
+        <div class="p-3">
+          <div class="flex justify-between items-center mb-2">
+            <div class="text-xs uppercase text-slate-400">My Contacts</div>
+            <button 
+              id="btnAddContact" 
+              class="text-sm text-indigo-600 hover:text-indigo-800 transition-colors"
+            >
+              + Add Contact
+            </button>
+          </div>
+          <div id="contactsList" class="space-y-1"></div>
+        </div>
+      </div>
 
-  <div class="inputArea">
-    <input 
-      id="imageInput" 
-      type="file" 
-      accept="image/*" 
-      style="display:none"
-    />
+      <!-- REQUESTS TAB CONTENT -->
+      <div id="requestsTabContent" class="hidden h-full">
+        <div class="p-3">
+          <div class="text-xs uppercase text-slate-400 mb-2">Pending Requests</div>
+          <div id="pendingRequests" class="space-y-2"></div>
+        </div>
+      </div>
 
-    <button class="iconBtn" id="btnImage">🖼️</button>
-
-    <div id="recordPopup" class="record-popup hidden">
-      🎤 Recording <span id="recordTimer">0:00</span>
-      <button id="btnCancelRecord" class="cancel-record">✖</button>
     </div>
-    <button class="iconBtn" id="btnVoice">🎤</button>
 
-    <input 
-      id="messageInput" 
-      class="messageInput" 
-      placeholder="Type a message..." 
-      autocomplete="off"
-    />
+    <!-- LOGOUT -->
+    <div class="p-4 border-t mt-auto">
+      <div class="text-xs text-slate-400">Logged as</div>
+      <div id="meName" class="font-semibold"></div>
+      <button 
+        id="btnLogout" 
+        class="mt-2 w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded transition-colors"
+      >
+        Logout
+      </button>
+    </div>
+  </aside>
 
-    <button id="btnSend" class="sendBtn">Send</button>
-  </div>
-</main>
+  <!-- CHAT AREA -->
+  <main class="flex-1 flex flex-col">
+    <header class="p-4 border-b bg-white flex items-center">
+      <div>
+        <div id="chatTitle" class="font-semibold">Global</div>
+        <div id="chatSubtitle" class="text-sm text-slate-500">Public global chat</div>
+      </div>
 
-<!-- Call Container -->
-<div id="callContainer">
-  <div id="callerName" style="font-weight: bold; margin-bottom: 10px;"></div>
-  <div id="callStatus">Memanggil...</div>
-  <audio id="localAudio" muted></audio>
-  <audio id="remoteAudio" autoplay></audio>
-  <div class="call-buttons">
-    <button id="btnAnswerCall">Terima</button>
-    <button id="btnRejectCall">Tolak</button>
-    <button id="btnEndCall">Akhiri</button>
+      <button 
+        id="btnClearChat" 
+        class="ml-auto bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors hidden"
+      >
+        Bersihkan
+      </button>
+    </header>
+
+    <section id="messages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 flex flex-col"></section>
+
+    <div class="p-3 bg-white border-t flex items-center gap-2">
+      <input type="file" id="imageInput" accept="image/*" class="hidden">
+      <button 
+        id="btnImage" 
+        class="text-xl hover:bg-slate-100 p-2 rounded-full transition-colors"
+      >
+        🖼️
+      </button>
+      <button 
+        id="btnVoice" 
+        class="text-xl hover:bg-slate-100 p-2 rounded-full transition-colors"
+      >
+        🎤
+      </button>
+
+      <input
+        id="messageInput"
+        class="flex-1 border rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        placeholder="Type a message..."
+      />
+
+      <button 
+        id="btnSend" 
+        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full transition-colors"
+      >
+        Send
+      </button>
+    </div>
+  </main>
+</div>
+
+<!-- ==================== ADD CONTACT MODAL ==================== -->
+<div id="addContactModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md animate-fade-in">
+    
+    <!-- Modal Header -->
+    <div class="flex items-center justify-between p-4 border-b">
+      <h3 class="text-lg font-semibold text-gray-800">Add New Contact</h3>
+      <button id="btnCloseModal" class="text-gray-400 hover:text-gray-600 text-2xl">
+        ×
+      </button>
+    </div>
+    
+    <!-- Modal Body -->
+    <div class="p-4">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">
+          Search by username
+        </label>
+        <div class="flex gap-2">
+          <input
+            id="searchContactInput"
+            type="text"
+            class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="Enter username..."
+            autocomplete="off"
+          />
+          <button
+            id="btnSearchContact"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+          >
+            Search
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">
+          Enter at least 2 characters to search
+        </p>
+      </div>
+      
+      <!-- Search Results -->
+      <div id="searchResults" class="max-h-60 overflow-y-auto space-y-2">
+        <div class="flex items-center justify-center py-8 text-gray-400 text-sm">
+          Search results will appear here
+        </div>
+      </div>
+    </div>
+    
   </div>
 </div>
 
-<!-- Script -->
-<script src="chat.js"></script>
+<!-- ==================== CALL UI ==================== -->
+<div id="callContainer" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 w-96 text-center animate-fade-in">
+    <div id="callerName" class="text-xl font-bold text-gray-800 mb-2">Calling...</div>
+    <div id="callStatus" class="text-gray-600 mb-6">Connecting...</div>
+    
+    <div class="flex justify-center gap-4">
+      <button id="btnAnswerCall" class="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-full text-lg">
+        Answer
+      </button>
+      <button id="btnRejectCall" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full text-lg">
+        Reject
+      </button>
+      <button id="btnEndCall" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full text-lg hidden">
+        End Call
+      </button>
+    </div>
+    
+    <audio id="localAudio" class="hidden"></audio>
+    <audio id="remoteAudio" class="hidden"></audio>
+  </div>
+</div>
+
+<!-- ==================== RECORDING POPUP ==================== -->
+<div id="recordPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+  <div class="bg-white rounded-xl shadow-xl p-6 text-center animate-fade-in">
+    <div class="text-2xl mb-4">🎤 Recording...</div>
+    <div id="recordTimer" class="text-3xl font-bold text-gray-800 mb-4">0:00</div>
+    <button id="btnCancelRecord" class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-lg">
+      Cancel
+    </button>
+  </div>
+</div>
+
+<!-- SCRIPTS -->
+<script type="module" src="./chat-config.js"></script>
+<script type="module" src="./chat-ui.js"></script>
+<script type="module" src="./chat-main.js"></script>
 
 </body>
 </html>
