@@ -13,6 +13,27 @@ import {
   setCallerName, showAddContactModal, closeAddContactModal, updatePendingBadge
 } from './chat-ui.js';
 
+if (!state.clearedContexts) {
+  state.clearedContexts = {};
+  
+  // Coba load dari sessionStorage
+  try {
+    const saved = sessionStorage.getItem('clearedContexts');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Filter hanya yang masih dalam 30 menit
+      const now = Date.now();
+      Object.keys(parsed).forEach(key => {
+        if (now - parsed[key] < 30 * 60 * 1000) { // 30 menit
+          state.clearedContexts[key] = parsed[key];
+        }
+      });
+      console.log('📁 Loaded cleared contexts from sessionStorage:', state.clearedContexts);
+    }
+  } catch (e) {
+    console.warn('Failed to load cleared contexts from sessionStorage:', e);
+  }
+}
 
 // Override console.log untuk timestamp
 const origLog = console.log;
@@ -29,85 +50,6 @@ console.log = function(...args) {
 
 // Deklarasi fungsi yang akan digunakan
 let timerInterval;
-
-// ==================== EVENT LISTENERS ====================
-function setupEventListeners() {
-  // Chat buttons
-  if (elements.btnSend) {
-    elements.btnSend.addEventListener("click", sendMessage);
-  }
-  
-  if (elements.msgInputEl) {
-    elements.msgInputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
-  }
-  
-  if (elements.btnCreateRoom) {
-    elements.btnCreateRoom.addEventListener("click", createRoom);
-  }
-  
-  if (elements.btnLogout) {
-    elements.btnLogout.addEventListener("click", logout);
-  }
-  
-  if (elements.btnImage) {
-    elements.btnImage.addEventListener("click", () => {
-      if (elements.imageInputEl) elements.imageInputEl.click();
-    });
-  }
-  
-  if (elements.imageInputEl) {
-    elements.imageInputEl.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await uploadFile(file);
-      e.target.value = "";
-    });
-  }
-  
-  // Voice recording
-  if (elements.btnVoice) {
-    elements.btnVoice.addEventListener("click", async () => {
-      if (!state.isRecording) {
-        startRecording();
-      } else {
-        finishRecording();
-      }
-    });
-  }
-  
-  if (elements.btnCancelRecord) {
-    elements.btnCancelRecord.addEventListener("click", () => {
-      stopRecording(true);
-    });
-  }
-  
-  // Clear chat
-  if (elements.btnClearChat) {
-    elements.btnClearChat.addEventListener("click", clearChat);
-  }
-  
-  // Call buttons
-  if (elements.btnAnswerCall) {
-    elements.btnAnswerCall.addEventListener("click", answerCall);
-  }
-  
-  if (elements.btnRejectCall) {
-    elements.btnRejectCall.addEventListener("click", rejectCall);
-  }
-  
-  if (elements.btnEndCall) {
-    elements.btnEndCall.addEventListener("click", endCall);
-  }
-  
-  // Contacts buttons - PERBAIKAN DISINI: Hapus duplikasi
-  // TIDAK PERLU: Event listeners sudah ada di chat-ui.js
-  // setupEventListeners()
-}
 
 // ==================== CONTACTS FUNCTIONS ====================
 export async function loadContacts() {
@@ -135,7 +77,7 @@ export async function loadContacts() {
 // Load pending requests dengan debugging
 export async function loadPendingRequests() {
   try {
-    console.log('🔄 Loading pending requests...');
+    console.log('🔄 Memuat pending requests...');
     
     const res = await fetch(`${API_ROOT}/contacts/pending`, {
       headers: { 
@@ -145,21 +87,66 @@ export async function loadPendingRequests() {
     });
     
     if (!res.ok) {
-      console.error('Failed to load requests:', res.status, res.statusText);
-      throw new Error('Failed to load requests');
+      console.error('Gagal memuat requests:', res.status, res.statusText);
+      throw new Error('Gagal memuat requests');
     }
     
     const data = await res.json();
-    console.log('📨 Pending requests data:', data);
+    console.log('📨 Data dari API:', data);
     
-    state.pendingRequests = data.pending || [];
-    renderPendingRequests(state.pendingRequests);
-    updatePendingBadge(state.pendingRequests.length);
+    // Ambil array requests
+    let requests = [];
     
-    return state.pendingRequests;
+    if (data.pending && Array.isArray(data.pending)) {
+      requests = data.pending;
+      console.log(`✅ ${requests.length} requests ditemukan di data.pending`);
+    } 
+    else if (Array.isArray(data)) {
+      requests = data;
+      console.log(`✅ ${requests.length} requests ditemukan di array langsung`);
+    }
+    
+    // Simpan ke state
+    state.pendingRequests = requests;
+    
+    // Render requests list
+    renderPendingRequests(requests);
+    
+    // ==================== UPDATE BADGE ====================
+    console.log(`🎯 Memperbarui badge dengan ${requests.length} requests`);
+    
+    // PASTIKAN FUNGSI updatePendingBadge DIPANGGIL
+    if (typeof updatePendingBadge === 'function') {
+      console.log('✅ Memanggil updatePendingBadge()');
+      updatePendingBadge(requests.length);
+    } else if (window.updatePendingBadge) {
+      console.log('✅ Memanggil window.updatePendingBadge()');
+      window.updatePendingBadge(requests.length);
+    } else {
+      console.error('❌ Fungsi updatePendingBadge tidak ditemukan!');
+      
+      // Fallback: update badge manual
+      const badge = document.getElementById('pendingBadge');
+      if (badge) {
+        badge.textContent = requests.length;
+        if (requests.length > 0) {
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      }
+    }
+    
+    // Update badge di state juga
+    if (window.updatePendingBadge) {
+      window.updatePendingBadge(requests.length);
+    }
+    
+    console.log(`✅ Selesai: ${requests.length} pending requests dimuat`);
+    
+    return requests;
   } catch (error) {
     console.error('Error loading requests:', error);
-    alert('Gagal memuat request: ' + error.message);
     return [];
   }
 }
@@ -319,7 +306,7 @@ async function loadInit() {
     // Render rooms
     renderRooms(data.rooms || [], setContext);
     
-    // Load contacts from init data
+    // Load contacts dari init data
     if (data.contacts) {
       state.userList = data.contacts;
       renderContacts(data.contacts, setContext, startCall);
@@ -333,14 +320,43 @@ async function loadInit() {
       updatePendingBadge(data.pendingCount);
     }
 
-    // Load global messages
-    clearMessages();
-    (data.messages || []).forEach((m) => {
-      if (!m.room_id && !m.recipient_id) {
-        m.username = `Global — ${m.username}`;
-        renderMessage(m);
+    // PERBAIKAN: Handle global messages berdasarkan cleared state
+    if (state.currentContext.type === "global") {
+      const contextKey = "global_global";
+      const wasClearedRecently = state.clearedContexts && state.clearedContexts[contextKey];
+      
+      if (wasClearedRecently && Date.now() - wasClearedRecently < 30 * 60 * 1000) {
+        // Chat global sudah dibersihkan (dalam 30 menit terakhir)
+        console.log('⚠️ Global chat was cleared recently, not loading messages');
+        
+        clearMessages();
+        
+        const clearedMsg = document.createElement("div");
+        clearedMsg.className = "system-message info text-center py-8 text-slate-400 text-sm";
+        clearedMsg.innerHTML = `
+          <div class="mb-2">🧹</div>
+          <div>Global chat telah dibersihkan</div>
+          <div class="text-xs mt-1 text-slate-500">
+            Pesan yang dihapus tidak akan tampil<br>
+            <button onclick="window.clearClearedState('global_global')" 
+                    class="mt-1 text-xs bg-blue-500 text-white px-2 py-1 rounded">
+              Tampilkan Pesan Lama
+            </button>
+          </div>
+        `;
+        if (elements.messagesEl) elements.messagesEl.appendChild(clearedMsg);
+        
+      } else {
+        // Load global messages seperti biasa
+        clearMessages();
+        (data.messages || []).forEach((m) => {
+          if (!m.room_id && !m.recipient_id) {
+            m.username = `Global — ${m.username}`;
+            renderMessage(m);
+          }
+        });
       }
-    });
+    }
     
   } catch (error) {
     console.error('Error loading init:', error);
@@ -350,7 +366,105 @@ async function loadInit() {
 
 async function setContext(ctx) {
   console.log('🔄 Setting context:', ctx);
+  
+  // PERBAIKAN: Cek apakah context ini sudah dibersihkan
+  const contextKey = `${ctx.type}_${ctx.roomId || ctx.userId || 'global'}`;
+  const wasClearedRecently = state.clearedContexts && state.clearedContexts[contextKey];
+  
+  if (wasClearedRecently && Date.now() - wasClearedRecently < 30000) {
+    console.log(`⚠️ Context ${contextKey} was cleared recently, showing empty chat`);
+    
+    state.currentContext = ctx;
+    
+    if (ctx.type === "global") {
+      updateChatTitle("Global", "Public global chat");
+    }
+    
+    // Kosongkan chat area
+    clearMessages();
+    
+    // Tampilkan pesan bahwa chat sudah dibersihkan
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "system-message info text-center py-8 text-slate-400 text-sm";
+    emptyMsg.innerHTML = `
+      <div class="mb-2">🧹</div>
+      <div>Chat telah dibersihkan</div>
+      <div class="text-xs mt-1 text-slate-500">
+        Pesan yang Anda hapus tidak akan tampil lagi<br>
+        Pesan baru akan tetap diterima
+      </div>
+      <button onclick="forceReloadContext(true)" 
+              class="mt-2 text-xs bg-blue-500 text-white px-3 py-1 rounded">
+        Muat Ulang Pesan
+      </button>
+    `;
+    if (elements.messagesEl) elements.messagesEl.appendChild(emptyMsg);
+    
+    updateClearBtnVisibility();
+    return;
+  }
+  
   state.currentContext = ctx;
+
+  if (ctx.type === "global") {
+    updateChatTitle("Global", "Public global chat");
+
+    try {
+      // PERBAIKAN: Gunakan endpoint yang benar - dari init data
+      const res = await fetch(API_ROOT + "/init", {
+        headers: { Authorization: "Bearer " + token },
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
+      const data = await res.json();
+      console.log('📦 Loaded global messages from init:', data.messages?.length || 0);
+      
+      clearMessages();
+      
+      // Filter hanya global messages
+      const globalMessages = (data.messages || []).filter((m) => 
+        !m.room_id && !m.recipient_id
+      );
+      
+      console.log(`📊 Found ${globalMessages.length} global messages`);
+      
+      if (globalMessages.length > 0) {
+        globalMessages.forEach((m) => {
+          m.username = `Global — ${m.username}`;
+          renderMessage(m);
+        });
+      } else {
+        // Tampilkan pesan kosong
+        const emptyMsg = document.createElement("div");
+        emptyMsg.className = "system-message info text-center py-8 text-slate-400 text-sm";
+        emptyMsg.innerHTML = `
+          <div class="mb-2">🌍</div>
+          <div>No messages in global chat yet</div>
+          <div class="text-xs mt-1 text-slate-500">Be the first to send a message!</div>
+        `;
+        if (elements.messagesEl) elements.messagesEl.appendChild(emptyMsg);
+      }
+      
+    } catch (error) {
+      console.error('Error loading global messages:', error);
+      
+      // Fallback: tampilkan pesan error
+      clearMessages();
+      const errorMsg = document.createElement("div");
+      errorMsg.className = "system-message error p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 mb-3";
+      errorMsg.innerHTML = `
+        <div class="font-medium">Error Loading Messages</div>
+        <div class="text-sm mt-1">${error.message}</div>
+      `;
+      if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
+    }
+
+    updateClearBtnVisibility();
+    return;
+  }
 
   if (ctx.type === "global") {
     updateChatTitle("Global", "Public global chat");
@@ -480,6 +594,31 @@ async function setContext(ctx) {
     return;
   }
 
+  setTimeout(() => {
+    const tempMessages = document.querySelectorAll('[id^="message-temp_"]');
+    if (tempMessages.length > 0) {
+      console.log(`⚠️ Found ${tempMessages.length} temporary messages after context load`);
+      console.log('This might mean WebSocket messages were not received');
+      
+      // Tampilkan warning ke user (opsional)
+      if (tempMessages.length > 0 && window.lastUploadedMessage) {
+        const warning = document.createElement("div");
+        warning.className = "system-message warning text-center p-3 bg-yellow-50 border border-yellow-200 rounded-lg mb-3";
+        warning.innerHTML = `
+          <div class="text-yellow-700 text-sm">
+            <span class="font-medium">Note:</span> Some messages might not sync properly.
+            <button onclick="location.reload()" class="ml-2 text-blue-600 hover:underline">
+              Refresh page
+            </button>
+          </div>
+        `;
+        if (elements.messagesEl) {
+          elements.messagesEl.appendChild(warning);
+        }
+      }
+    }
+  }, 1000);
+
   updateClearBtnVisibility();
 }
 
@@ -590,6 +729,8 @@ async function sendMessage() {
 }
 
 async function uploadFile(file) {
+  console.log('📸 [IMAGE] Uploading file:', file.name, file.type);
+  
   const formData = new FormData();
   formData.append("file", file);
 
@@ -607,14 +748,54 @@ async function uploadFile(file) {
     return;
   }
 
-  if (state.currentContext.type === "room") {
-    formData.append("roomId", state.currentContext.roomId);
-  }
-  if (state.currentContext.type === "private") {
-    formData.append("recipientId", state.currentContext.userId);
+  const context = state.currentContext;
+  
+  // TAMBAHKAN DATA KONTEKS
+  formData.append("sender_id", myId);
+  formData.append("sender_username", myUsername);
+  
+  if (context.type === "room") {
+    formData.append("roomId", context.roomId);
+    formData.append("type", "room");
+  } else if (context.type === "private") {
+    formData.append("recipientId", context.userId);
+    formData.append("type", "private");
+  } else {
+    formData.append("type", "global");
   }
 
+  // ==================== OPTIMISTIC UPDATE UNTUK IMAGE ====================
+  const tempObjectUrl = URL.createObjectURL(file);
+  
+  // Optimistic message untuk image
+  const optimisticMessage = {
+    id: 'temp_image_' + Date.now(),
+    sender_id: myId,
+    sender_username: myUsername,
+    username: myUsername,
+    file_type: fileType,
+    file_url: tempObjectUrl,
+    content: fileType === "image" ? "Mengirim gambar..." : "Mengirim voice...",
+    created_at: new Date().toISOString(),
+    is_optimistic: true,
+    is_temp_url: true,
+    room_id: context.type === "room" ? context.roomId : null,
+    recipient_id: context.type === "private" ? context.userId : null
+  };
+  
+  // RENDER SEKARANG JUGA dengan preview
+  renderMessage(optimisticMessage);
+  console.log(`✅ Optimistic ${fileType} message rendered dengan preview`);
+  
+  // Scroll ke bawah
+  setTimeout(() => {
+    if (elements.messagesEl) {
+      elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+    }
+  }, 50);
+
   try {
+    // Upload di background
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: "Bearer " + token },
@@ -622,13 +803,42 @@ async function uploadFile(file) {
     });
 
     const data = await res.json();
-    if (!data.fileUrl) {
-      console.error("Upload failed:", data);
-      alert("Upload gagal");
+    
+    if (!res.ok) {
+      throw new Error(data.error || data.message || 'Upload gagal');
     }
+    
+    if (!data.fileUrl) {
+      throw new Error('Upload gagal: tidak ada URL file');
+    }
+    
+    // Revoke temporary URL karena sudah dapat URL dari server
+    URL.revokeObjectURL(tempObjectUrl);
+    
+    console.log(`✅ ${fileType} upload successful:`, data.fileUrl);
+    
+    // Server akan mengirim WebSocket message dengan data real
+    // Optimistic message akan di-replace oleh server message
+    
   } catch (error) {
-    console.error("Upload error:", error);
-    alert("Error saat upload");
+    console.error(`❌ ${fileType} upload error:`, error);
+    
+    // Update optimistic message menjadi error
+    const errorMessage = {
+      ...optimisticMessage,
+      content: `❌ Gagal mengirim ${fileType === "image" ? "gambar" : "voice"}`,
+      is_error: true
+    };
+    
+    // Hapus optimistic message yang lama
+    const tempElements = document.querySelectorAll(`[id*="temp_${fileType}_"]`);
+    tempElements.forEach(el => el.remove());
+    
+    // Render error message
+    renderMessage(errorMessage);
+    
+    // Revoke temp URL jika error
+    URL.revokeObjectURL(tempObjectUrl);
   }
 }
 
@@ -663,58 +873,150 @@ function logout() {
 // ==================== RECORDING FUNCTIONS ====================
 async function startRecording() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    console.log('🎤 Starting recording...');
+    
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+    
     state.mediaRecorder = new MediaRecorder(stream);
     state.audioChunks = [];
     
-    state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
+    state.mediaRecorder.ondataavailable = e => {
+      if (e.data.size > 0) {
+        state.audioChunks.push(e.data);
+      }
+    };
+    
+    state.mediaRecorder.onstop = () => {
+      console.log('⏹️ Recording stopped, processing chunks...');
+      
+      // Stop semua tracks
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Upload hanya jika tidak dicancel dan ada chunks
+      if (!state.recordingCancelled && state.audioChunks.length > 0) {
+        console.log(`📦 Creating blob from ${state.audioChunks.length} chunks`);
+        const audioBlob = new Blob(state.audioChunks, { type: "audio/webm" });
+        
+        // Upload dengan error handling
+        uploadVoiceBlob(audioBlob).catch(err => {
+          console.error('❌ Voice upload failed:', err);
+          alert('Gagal mengirim voice message: ' + err.message);
+        });
+      }
+      
+      // Reset state
+      state.audioChunks = [];
+      state.recordingCancelled = false;
+      console.log('🔄 Recording state reset');
+    };
+    
+    // Mulai recording
     state.mediaRecorder.start();
     state.isRecording = true;
-
-    updateRecordingUI(true);
-
     state.recordTimer = 0;
+
+    // Update UI
+    updateRecordingUI(true);
+    
+    // Start timer
     timerInterval = setInterval(() => {
       state.recordTimer++;
       updateRecordTimer(state.recordTimer);
+      
+      // Auto-stop at 2 minutes
+      if (state.recordTimer >= 120) {
+        console.log('⏱️ Maximum recording time reached');
+        finishRecording();
+      }
     }, 1000);
+    
   } catch (error) {
     console.error("Error starting recording:", error);
-    alert("Gagal mengakses microphone");
+    alert("Cannot access microphone. Please check permissions.");
+    stopRecording(true);
   }
 }
+
 
 function stopRecording(cancel = false) {
   if (!state.isRecording) return;
   
+  console.log(cancel ? '❌ Cancelling recording' : '✅ Finishing recording');
+  
   state.isRecording = false;
-  state.mediaRecorder.stop();
-  clearInterval(timerInterval);
-
+  state.recordingCancelled = cancel;
+  
+  // HENTIKAN UI RECORDING SEGERA
   updateRecordingUI(false);
-
+  clearInterval(timerInterval);
+  
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.stop();
+  }
+  
+  // Reset untuk recording berikutnya
   if (cancel) {
     state.audioChunks = [];
-    return;
+    console.log('🗑️ Recording cancelled');
   }
-
-  state.mediaRecorder.onstop = () => {
-    const audioBlob = new Blob(state.audioChunks, { type: "audio/webm" });
-    uploadVoiceBlob(audioBlob);
-  };
 }
 
 async function uploadVoiceBlob(blob) {
+  console.log('🎤 [VOICE] Uploading voice blob...');
+  
+  const context = state.currentContext;
   const formData = new FormData();
   formData.append("file", blob, "voice.webm");
+  formData.append("sender_id", myId);
+  formData.append("sender_username", myUsername);
+  formData.append("content", "Voice message");
 
-  if (state.currentContext.type === "room") {
-    formData.append("roomId", state.currentContext.roomId);
-  }
-  if (state.currentContext.type === "private") {
-    formData.append("recipientId", state.currentContext.userId);
+  if (context.type === "room") {
+    formData.append("roomId", context.roomId);
+    formData.append("type", "room");
+  } else if (context.type === "private") {
+    formData.append("recipientId", context.userId);
+    formData.append("type", "private");
+  } else {
+    formData.append("type", "global");
   }
 
+  // ==================== OPTIMISTIC UPDATE ====================
+  const tempObjectUrl = URL.createObjectURL(blob);
+  const optimisticId = 'temp_voice_' + Date.now();
+  
+  const optimisticMessage = {
+    id: optimisticId,
+    sender_id: myId,
+    sender_username: myUsername,
+    username: myUsername,
+    file_type: "voice",
+    file_url: tempObjectUrl,
+    content: "Voice message",
+    created_at: new Date().toISOString(),
+    is_optimistic: true,
+    is_temp_url: true,
+    room_id: context.type === "room" ? context.roomId : null,
+    recipient_id: context.type === "private" ? context.userId : null
+  };
+  
+  // RENDER SEKARANG JUGA
+  renderMessage(optimisticMessage);
+  console.log('✅ Optimistic voice message rendered, ID:', optimisticId);
+  
+  // Scroll ke bawah - GUNAKAN FUNGSI LOKAL
+  setTimeout(() => {
+    if (elements.messagesEl) {
+      elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+    }
+  }, 50);
+  
   try {
     const res = await fetch("/api/upload/voice", {
       method: "POST",
@@ -723,16 +1025,76 @@ async function uploadVoiceBlob(blob) {
     });
 
     const data = await res.json();
-    if (!data.fileUrl) {
-      console.error("Voice upload failed:", data);
+    console.log('📥 [VOICE] Server response:', data);
+    
+    if (!res.ok) {
+      throw new Error(data.error || data.message || 'Upload failed');
     }
+    
+    if (!data.fileUrl) {
+      throw new Error('No file URL returned');
+    }
+    
+    console.log('✅ Upload successful, waiting for WebSocket...');
+    
+    // Jika server mengembalikan message data
+    if (data.message && data.message.id) {
+      window.lastUploadedMessage = {
+        id: optimisticId,
+        serverMessage: data.message,
+        timestamp: Date.now()
+      };
+      
+      console.log('📝 Server returned message:', data.message);
+      
+      // Hapus optimistic message setelah beberapa saat
+      setTimeout(() => {
+        const tempElements = document.querySelectorAll(`[id*="${optimisticId}"]`);
+        if (tempElements.length > 0) {
+          console.log(`🗑️ Removing ${tempElements.length} optimistic messages`);
+          tempElements.forEach(el => el.remove());
+        }
+        
+        // Render message dari server jika belum ada
+        const existingMsg = document.querySelector(`[id="message-${data.message.id}"]`);
+        if (!existingMsg) {
+          renderMessage(data.message);
+        }
+      }, 1000);
+    }
+    
+    // Revoke temporary URL
+    URL.revokeObjectURL(tempObjectUrl);
+    
+    return data;
+    
   } catch (error) {
-    console.error("Voice upload error:", error);
+    console.error("❌ [VOICE] Upload error:", error);
+    
+    // Update optimistic message menjadi error
+    const errorMessage = {
+      ...optimisticMessage,
+      content: "❌ Gagal mengirim voice: " + error.message,
+      is_error: true
+    };
+    
+    // Hapus optimistic message yang lama
+    const tempElements = document.querySelectorAll(`[id*="${optimisticId}"]`);
+    console.log(`🗑️ Removing ${tempElements.length} error messages`);
+    tempElements.forEach(el => el.remove());
+    
+    // Render error message
+    renderMessage(errorMessage);
+    
+    // Revoke temp URL
+    URL.revokeObjectURL(tempObjectUrl);
   }
 }
 
 function finishRecording() {
+  console.log('🔄 Finishing recording...');
   stopRecording(false);
+  
 }
 
 // ==================== CLEAR CHAT ====================
@@ -744,15 +1106,32 @@ async function clearChat() {
   }
 
   let url = "";
+  let contextName = "";
+  
   if (state.currentContext.type === "global") {
     url = `/api/chat/clear/global`;
+    contextName = "Global";
   } else if (state.currentContext.type === "room") {
     url = `/api/chat/clear/room/${state.currentContext.roomId}`;
+    contextName = state.currentContext.name;
   } else if (state.currentContext.type === "private") {
     url = `/api/chat/clear/private/${state.currentContext.userId}`;
+    contextName = state.currentContext.username;
   }
 
+  console.log('🧹 Clearing chat:', contextName, 'URL:', url);
+
   try {
+    // Tampilkan loading
+    clearMessages();
+    const loadingMsg = document.createElement("div");
+    loadingMsg.className = "system-message loading text-center p-4 bg-blue-50 border border-blue-200 rounded-xl mb-3";
+    loadingMsg.innerHTML = `
+      <div class="text-blue-700 font-medium mb-1">⏳ Membersihkan chat ${contextName}...</div>
+      <div class="text-sm text-blue-600">Harap tunggu</div>
+    `;
+    if (elements.messagesEl) elements.messagesEl.appendChild(loadingMsg);
+
     const res = await fetch(url, {
       method: "DELETE",
       headers: {
@@ -764,22 +1143,84 @@ async function clearChat() {
     const result = await res.json();
     console.log("Clear chat result:", result);
 
+    // Hapus loading
+    if (loadingMsg.parentNode) {
+      loadingMsg.parentNode.removeChild(loadingMsg);
+    }
+
     if (result.success) {
-      clearMessages();
+      // PERBAIKAN: Simpan state cleared contexts di sessionStorage agar bertahan saat refresh
+      const contextKey = `${state.currentContext.type}_${state.currentContext.roomId || state.currentContext.userId || 'global'}`;
+      
+      if (!state.clearedContexts) {
+        state.clearedContexts = {};
+      }
+      
+      // Simpan di state
+      state.clearedContexts[contextKey] = Date.now();
+      
+      // PERBAIKAN PENTING: Simpan juga di sessionStorage
+      try {
+        sessionStorage.setItem('clearedContexts', JSON.stringify(state.clearedContexts));
+        console.log(`✅ Saved cleared contexts to sessionStorage`);
+      } catch (e) {
+        console.warn('Could not save to sessionStorage:', e);
+      }
+      
+      console.log(`✅ Marked context ${contextKey} as cleared`);
+      
+      // Tampilkan pesan sukses
       const successMsg = document.createElement("div");
-      successMsg.className = "system-message success";
-      successMsg.textContent = `✅ Berhasil menghapus ${result.deletedCount || 0} pesan (hanya untuk Anda)`;
+      successMsg.className = "system-message success text-center p-4 bg-green-50 border border-green-200 rounded-xl mb-3";
+      successMsg.innerHTML = `
+        <div class="text-green-700 font-medium mb-1">✅ Chat ${contextName} Cleared</div>
+        <div class="text-sm text-green-600">
+          ${result.deletedCount || 0} pesan berhasil dihapus
+        </div>
+        <div class="text-xs text-green-500 mt-2">
+          Hanya Anda yang melihat chat kosong ini
+        </div>
+      `;
       if (elements.messagesEl) elements.messagesEl.appendChild(successMsg);
       
+      // PERBAIKAN: JANGAN reload context - biarkan tetap kosong
+      // Hapus semua pesan dari UI
+      const allMessages = document.querySelectorAll('.message:not(.system-message)');
+      allMessages.forEach(msg => msg.remove());
+      
+      // Scroll ke bawah
       setTimeout(() => {
-        setContext(state.currentContext);
-      }, 500);
+        if (elements.messagesEl) {
+          elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+        }
+      }, 100);
+      
+      console.log('✅ Chat cleared successfully');
+      
     } else {
-      alert("❌ Gagal membersihkan chat");
+      // Tampilkan error
+      const errorMsg = document.createElement("div");
+      errorMsg.className = "system-message error text-center p-4 bg-red-50 border border-red-200 rounded-xl mb-3";
+      errorMsg.innerHTML = `
+        <div class="text-red-700 font-medium mb-1">❌ Gagal Membersihkan Chat</div>
+        <div class="text-sm text-red-600">${result.error || "Unknown error"}</div>
+      `;
+      if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
+      
+      // Reload context untuk menampilkan pesan kembali
+      setTimeout(() => setContext(state.currentContext), 1000);
     }
   } catch (err) {
     console.error("Clear chat error:", err);
-    alert("❌ Terjadi error saat membersihkan chat");
+    
+    // Tampilkan error
+    const errorMsg = document.createElement("div");
+    errorMsg.className = "system-message error text-center p-4 bg-red-50 border border-red-200 rounded-xl mb-3";
+    errorMsg.innerHTML = `
+      <div class="text-red-700 font-medium mb-1">❌ Error</div>
+      <div class="text-sm text-red-600">Terjadi error saat membersihkan chat</div>
+    `;
+    if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
   }
 }
 
@@ -823,6 +1264,23 @@ function connectWS() {
 function handleWS(data) {
   console.log('📨 WS MESSAGE:', data.type, data);
 
+    // PERBAIKAN: Cek apakah chat ini baru saja dibersihkan
+  const shouldBlockMessages = 
+    state.lastClearedAt && 
+    Date.now() - state.lastClearedAt < 10000 && // Dalam 10 detik terakhir
+    (
+      (data.message && data.message.room_id && state.currentContext.type === "room" && 
+       data.message.room_id === state.currentContext.roomId) ||
+      (data.message && data.message.recipient_id && state.currentContext.type === "private" &&
+       (data.message.recipient_id === state.currentContext.userId || 
+        data.message.sender_id === state.currentContext.userId))
+    );
+  
+  if (shouldBlockMessages) {
+    console.log('🚫 Blocking WS message karena chat baru dibersihkan');
+    return;
+  }
+
   switch (data.type) {
     case "init":
       if (data.rooms) renderRooms(data.rooms, setContext);
@@ -834,7 +1292,17 @@ function handleWS(data) {
       break;
 
     case "global_message":
+      // PERBAIKAN: Cek apakah global chat sudah dibersihkan
       if (state.currentContext.type === "global") {
+        const contextKey = "global_global";
+        const wasClearedRecently = state.clearedContexts && 
+                                  state.clearedContexts[contextKey] && 
+                                  Date.now() - state.clearedContexts[contextKey] < 30 * 60 * 1000;
+        
+        if (wasClearedRecently) {
+          console.log('🚫 Global chat was cleared, but allowing NEW messages');
+          // Tetap render pesan baru yang datang via WebSocket
+        }
         renderMessage(data.message);
       }
       break;
@@ -854,13 +1322,68 @@ function handleWS(data) {
       break;
 
     case "file_message":
-      if (data.message && shouldShowMessageForContext(data.message)) {
-        data.message.username = data.message.username || 
-          (data.message.sender_id === myId ? myUsername : state.currentContext.username);
+      console.log('📄 [WS] File message received:', data.message);
+      
+      // DEBUG: Log semua detail message
+      console.log('🔍 Message details:', {
+        id: data.message.id,
+        sender_id: data.message.sender_id,
+        myId: myId,
+        type: data.message.file_type,
+        url: data.message.file_url,
+        room_id: data.message.room_id,
+        recipient_id: data.message.recipient_id,
+        currentContext: state.currentContext
+      });
+      
+      // Cek apakah message ini milik saya
+      const isMyFileMessage = data.message.sender_id == myId;
+      
+      // PERBAIKAN: Hapus optimistic messages HANYA jika ini adalah file message saya
+      if (isMyFileMessage) {
+        console.log('🎯 This is MY file message from server');
+        
+        // Hapus semua temporary messages
+        const tempElements = document.querySelectorAll('[id^="message-temp_"]');
+        tempElements.forEach(el => el.remove());
+        
+        // Hapus berdasarkan ID
+        const allTemp = document.querySelectorAll('[id^="temp_"]');
+        allTemp.forEach(el => {
+          if (el.id.includes('image') || el.id.includes('voice')) {
+            el.remove();
+          }
+        });
+      }
+      
+      // PERBAIKAN: Cek apakah message ini cocok dengan context yang aktif
+      const shouldRender = shouldShowMessageForContext(data.message);
+      
+      if (shouldRender) {
+        console.log('✅ Rendering file message for current context');
+        
+        // Tambahkan username jika tidak ada
+        if (!data.message.username) {
+          data.message.username = data.message.sender_id == myId ? 
+            myUsername : 
+            (state.currentContext?.username || "Unknown");
+        }
+        
+        // Pastikan file_type di-set
+        if (!data.message.file_type && data.message.file_url) {
+          const url = data.message.file_url.toLowerCase();
+          if (url.match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+            data.message.file_type = "image";
+          } else if (url.match(/\.(webm|mp3|ogg|wav|m4a)$/)) {
+            data.message.file_type = "voice";
+          }
+        }
+        
         renderMessage(data.message);
+      } else {
+        console.log('❌ Not rendering - wrong context');
       }
       break;
-
     case "user_status":
       updateUserStatus(data.userId, data.isOnline);
       break;
@@ -1211,6 +1734,51 @@ function startStatusChecker() {
   }, 30000);
 }
 
+// Tambahkan di chat-main.js
+async function debugVoiceMessages() {
+  console.log('🔍 Debug voice messages...');
+  
+  try {
+    const context = state.currentContext;
+    let endpoint = '';
+    
+    if (context.type === "room") {
+      endpoint = `${API_ROOT}/rooms/${context.roomId}/messages`;
+    } else if (context.type === "private") {
+      endpoint = `${API_ROOT}/private/${encodeURIComponent(myUsername)}/${encodeURIComponent(context.username)}`;
+    } else {
+      endpoint = `${API_ROOT}/messages/global`;
+    }
+    
+    const res = await fetch(endpoint, {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const data = await res.json();
+    console.log('📊 All messages from server:', data);
+    
+    // Filter hanya voice messages
+    const voiceMessages = (data.messages || []).filter(m => 
+      m.file_type === 'voice' || 
+      (m.file_url && m.file_url.includes('.webm')) ||
+      (m.file_url && m.file_url.includes('.mp3'))
+    );
+    
+    console.log('🎤 Voice messages in database:', voiceMessages.length);
+    voiceMessages.forEach((m, i) => {
+      console.log(`${i+1}. ID: ${m.id}, Sender: ${m.username}, URL: ${m.file_url}`);
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+  }
+}
+
+// Ekspos ke window untuk debugging
+
 // ==================== INITIALIZATION ====================
 async function init() {
   document.addEventListener("DOMContentLoaded", async () => {
@@ -1248,6 +1816,8 @@ async function init() {
   window.startRecording = startRecording;
   window.finishRecording = finishRecording;
   window.stopRecording = stopRecording;
+  window.updateRecordingUI = updateRecordingUI;
+  window.updateRecordTimer = updateRecordTimer;
   window.clearChat = clearChat;
   window.answerCall = answerCall;
   window.rejectCall = rejectCall;
@@ -1255,9 +1825,158 @@ async function init() {
   window.searchUsers = searchUsers;
   window.debugModalClose = debugModalClose;
   window.debugAllButtons = debugAllButtons;
+  window.debugPendingRequests = debugPendingRequests;
+  window.testPendingAPI = testPendingAPI;
+  window.testRenderWithSample = testRenderWithSample;
+  window.debugVoiceMessages = debugVoiceMessages;
+
   
   console.log('✅ Chat initialized');
 }
+
+// Fungsi untuk reset cleared state
+function clearClearedState(contextKey) {
+  if (state.clearedContexts && state.clearedContexts[contextKey]) {
+    delete state.clearedContexts[contextKey];
+    
+    // Update sessionStorage
+    try {
+      sessionStorage.setItem('clearedContexts', JSON.stringify(state.clearedContexts));
+    } catch (e) {
+      console.warn('Failed to update sessionStorage:', e);
+    }
+    
+    console.log(`✅ Cleared state removed for ${contextKey}`);
+    
+    // Reload context
+    if (state.currentContext) {
+      setContext(state.currentContext);
+    }
+  }
+}
+
+// Ekspos ke window
+window.clearClearedState = clearClearedState;
+window.debugClearChat = async function() {
+  console.log('🔍 Debugging clear chat...');
+  
+  // 1. Cek current context
+  console.log('Current context:', state.currentContext);
+  console.log('Cleared contexts:', state.clearedContexts);
+  
+  // 2. Cek sessionStorage
+  try {
+    const saved = sessionStorage.getItem('clearedContexts');
+    console.log('SessionStorage clearedContexts:', saved);
+  } catch (e) {
+    console.warn('Cannot read sessionStorage:', e);
+  }
+  
+  // 3. Cek messages sebelum clear
+  const messagesBefore = document.querySelectorAll('.message').length;
+  console.log(`Messages before clear: ${messagesBefore}`);
+  
+  // 4. Test clear API
+  const url = state.currentContext.type === "global" 
+    ? `/api/chat/clear/global`
+    : state.currentContext.type === "room"
+    ? `/api/chat/clear/room/${state.currentContext.roomId}`
+    : `/api/chat/clear/private/${state.currentContext.userId}`;
+  
+  console.log('Testing API:', url);
+  
+  try {
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      },
+    });
+    
+    const result = await res.json();
+    console.log('API Response:', result);
+    
+    if (result.success) {
+      // Simpan di state dan sessionStorage
+      const contextKey = `${state.currentContext.type}_${state.currentContext.roomId || state.currentContext.userId || 'global'}`;
+      
+      if (!state.clearedContexts) state.clearedContexts = {};
+      state.clearedContexts[contextKey] = Date.now();
+      
+      try {
+        sessionStorage.setItem('clearedContexts', JSON.stringify(state.clearedContexts));
+        console.log(`✅ Saved to sessionStorage`);
+      } catch (e) {
+        console.warn('Failed to save to sessionStorage:', e);
+      }
+      
+      console.log(`✅ Marked ${contextKey} as cleared`);
+      
+      // Clear UI
+      clearMessages();
+      
+      // Show debug message
+      const debugMsg = document.createElement("div");
+      debugMsg.className = "system-message debug text-center p-4 bg-purple-50 border border-purple-200 rounded-xl mb-3";
+      debugMsg.innerHTML = `
+        <div class="text-purple-700 font-medium mb-1">🔧 Debug: Chat Cleared</div>
+        <div class="text-sm text-purple-600">
+          Context: ${contextKey}<br>
+          Time: ${new Date().toLocaleTimeString()}<br>
+          Deleted: ${result.deletedCount || 0} messages
+        </div>
+        <div class="mt-2 flex flex-col gap-1 items-center">
+          <button onclick="clearClearedState('${contextKey}')" 
+                  class="text-xs bg-green-500 text-white px-3 py-1 rounded">
+            Reset Cleared State
+          </button>
+          <button onclick="location.reload()" 
+                  class="text-xs bg-blue-500 text-white px-3 py-1 rounded">
+            Refresh Page
+          </button>
+          <small class="text-gray-500 text-xs mt-1">
+            Refresh page to test persistence
+          </small>
+        </div>
+      `;
+      if (elements.messagesEl) elements.messagesEl.appendChild(debugMsg);
+      
+      // Cek UI setelah clear
+      setTimeout(() => {
+        const messagesAfter = document.querySelectorAll('.message').length;
+        const systemMessages = document.querySelectorAll('.system-message').length;
+        console.log(`Messages after clear: ${messagesAfter} (${systemMessages} system messages)`);
+      }, 500);
+    }
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+  }
+};
+
+// Ekspos ke window
+window.debugClearChat = debugClearChat;
+
+// Tambahkan fungsi untuk force reload context
+async function forceReloadContext(skipClearedCheck = false) {
+  if (!state.currentContext) return;
+  
+  console.log('🔄 Force reloading context...');
+  
+  // Reset cleared flag jika diminta
+  if (skipClearedCheck && state.clearedContexts) {
+    const contextKey = `${state.currentContext.type}_${state.currentContext.roomId || state.currentContext.userId || 'global'}`;
+    delete state.clearedContexts[contextKey];
+    console.log(`🗑️ Removed cleared flag for ${contextKey}`);
+  }
+  
+  // Reload context
+  await setContext(state.currentContext);
+}
+
+// Ekspos ke window
+window.forceReloadContext = forceReloadContext;
 
 // Start everything
 init();

@@ -72,6 +72,49 @@
       color: #1f2937;
       border-radius: 18px 18px 18px 4px;
     }
+
+    .voice-player {
+      width: 200px;
+      height: 40px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .voice-player::-webkit-media-controls-panel {
+      background: transparent;
+    }
+
+    .voice-player::-webkit-media-controls-play-button {
+      background-color: white;
+      border-radius: 50%;
+    }
+
+    .voice-player::-webkit-media-controls-current-time-display,
+    .voice-player::-webkit-media-controls-time-remaining-display {
+      color: white;
+      font-size: 12px;
+    }
+
+    .animate-pulse {
+        animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      /* Voice message bubble */
+      .voice-bubble {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 20px;
+        padding: 12px 16px;
+        max-width: 280px;
+      }
+
+      .voice-bubble-other {
+        background: #f3f4f6;
+        color: #374151;
+        border-radius: 20px;
+        padding: 12px 16px;
+        max-width: 280px;
+      }
     
   </style>
 </head>
@@ -102,13 +145,19 @@
       >
         Contacts
       </button>
+      <!-- Ganti bagian badge di tab Requests menjadi: -->
       <button 
         data-tab="requests" 
         id="btnTabRequests" 
-        class="tab-btn flex-1 py-2 text-slate-500 relative transition-all duration-200"
+        class="tab-btn flex-1 py-2 text-slate-500 relative transition-all duration-200 group"
       >
         Requests
-        <span id="pendingBadge" class="absolute top-1 right-4 bg-red-500 text-white text-xs px-2 rounded-full">0</span>
+        <span 
+          id="pendingBadge" 
+          class="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold px-1.5 rounded-full flex items-center justify-center transform transition-all duration-300 scale-100 group-hover:scale-110 shadow-lg border-2 border-white hidden"
+        >
+          0
+        </span>
       </button>
     </div>
 
@@ -297,15 +346,101 @@
 </div>
 
 <!-- ==================== RECORDING POPUP ==================== -->
-<div id="recordPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-  <div class="bg-white rounded-xl shadow-xl p-6 text-center animate-fade-in">
-    <div class="text-2xl mb-4">🎤 Recording...</div>
-    <div id="recordTimer" class="text-3xl font-bold text-gray-800 mb-4">0:00</div>
-    <button id="btnCancelRecord" class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-lg">
-      Cancel
-    </button>
+<div id="recordPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 text-center animate-fade-in w-full max-w-sm">
+    
+    <!-- Recording Animation -->
+    <div class="flex justify-center mb-6">
+      <div class="relative w-16 h-16">
+        <div class="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
+        <div class="relative w-16 h-16 bg-red-500 rounded-full flex items-center justify-center">
+          <span class="text-2xl text-white">🎤</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Status -->
+    <div class="text-xl font-semibold text-gray-800 mb-2">Recording Voice Message</div>
+    <div id="recordTimer" class="text-4xl font-bold text-gray-800 mb-6">0:00</div>
+    
+    <!-- Timer Progress -->
+    <div class="w-full bg-gray-200 rounded-full h-2 mb-8">
+      <div id="recordProgress" class="bg-red-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+    </div>
+    
+    <!-- Max Time Info -->
+    <div class="text-sm text-gray-500 mb-6">Maximum recording time: 2 minutes</div>
+    
+    <!-- Action Buttons -->
+    <div class="flex gap-3 justify-center">
+      <button 
+        id="btnCancelRecord" 
+        class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-medium px-5 py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+      >
+        <span class="text-lg">✕</span>
+        Cancel
+      </button>
+      
+      <button 
+        id="btnSendRecord" 
+        class="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium px-5 py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+      >
+        <span class="text-lg">✓</span>
+        Send
+      </button>
+    </div>
+    
+    <!-- Recording Visualizer (Optional) -->
+    <div class="mt-6 flex justify-center gap-1 h-8" id="audioVisualizer">
+      <div class="w-1 bg-red-300 rounded-full animate-pulse"></div>
+      <div class="w-1 bg-red-400 rounded-full animate-pulse" style="animation-delay: 0.1s"></div>
+      <div class="w-1 bg-red-500 rounded-full animate-pulse" style="animation-delay: 0.2s"></div>
+      <div class="w-1 bg-red-400 rounded-full animate-pulse" style="animation-delay: 0.3s"></div>
+      <div class="w-1 bg-red-300 rounded-full animate-pulse" style="animation-delay: 0.4s"></div>
+    </div>
+    
   </div>
 </div>
+
+<!-- Tambahkan di chat.html -->
+<button onclick="testVoiceUpload()" class="bg-red-500 text-white px-3 py-1 rounded text-xs">
+  Test Voice Issue
+</button>
+
+<script>
+async function testVoiceUpload() {
+  console.log('🔬 Testing voice upload...');
+  
+  // 1. Cek apakah file tersimpan di server
+  const testBlob = new Blob(['test'], { type: 'audio/webm' });
+  const formData = new FormData();
+  formData.append('file', testBlob, 'test.webm');
+  formData.append('sender_id', window.myId);
+  formData.append('type', 'private');
+  formData.append('recipientId', window.state?.currentContext?.userId || 'test');
+  
+  try {
+    const res = await fetch('/api/upload/voice', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + window.token },
+      body: formData
+    });
+    
+    const data = await res.json();
+    console.log('Upload test result:', data);
+    
+    // 2. Cek database untuk messages
+    if (data.messageId) {
+      console.log('✅ Message saved with ID:', data.messageId);
+    } else {
+      console.warn('⚠️ No message ID returned');
+    }
+    
+  } catch (error) {
+    console.error('Test failed:', error);
+  }
+}
+</script>
 
 <!-- SCRIPTS -->
 <script type="module" src="./chat-config.js"></script>

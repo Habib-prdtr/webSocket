@@ -140,29 +140,43 @@ export function scrollToBottom() {
 }
 
 export function clearMessages() {
-  if (elements.messagesEl) {
-    elements.messagesEl.innerHTML = "";
+  if (!elements.messagesEl) return;
+  
+  // PERBAIKAN: Hapus semua children
+  while (elements.messagesEl.firstChild) {
+    elements.messagesEl.removeChild(elements.messagesEl.firstChild);
   }
+  
+  // Atau alternatif yang lebih cepat
+  // elements.messagesEl.innerHTML = "";
+  
+  console.log('🧹 All messages cleared from UI');
 }
 // FIXED: Bubble chat positioning dengan Tailwind
 export function renderMessage(m) {
   if (!elements.messagesEl) return;
   
+  // Cek apakah message sudah ada (untuk menghindari duplikat)
+  const existingMsg = document.getElementById(`message-${m.id}`);
+  if (existingMsg && !m.is_optimistic) {
+    console.log(`⚠️ Message ${m.id} already exists, skipping`);
+    return;
+  }
+  
   const bubble = document.createElement("div");
   
-  // PERBAIKAN DISINI: Chat sendiri di KANAN, orang lain di KIRI
+  // Gunakan ID yang konsisten
+  bubble.id = `message-${m.id || m.temp_id}`;
+  
   const isMyMessage = m.sender_id === myId;
   
-  // Tailwind classes untuk bubble chat
   if (isMyMessage) {
-    // CHAT SENDIRI - DI KANAN (Warna biru)
     bubble.className = "message me max-w-[30%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-2 mb-2";
   } else {
-    // CHAT ORANG LAIN - DI KIRI (Warna abu-abu)
     bubble.className = "message other max-w-[30%] self-start mr-auto bg-gray-200 text-gray-800 rounded-tl-none rounded-2xl px-4 py-2 mb-2";
   }
   
-  // Author/username dengan Tailwind
+  // Author
   const author = document.createElement("div");
   author.className = "author text-xs font-medium mb-1";
   author.textContent = isMyMessage ? "You" : (m.username || "Unknown");
@@ -170,19 +184,32 @@ export function renderMessage(m) {
 
   // Konten pesan
   const fileUrl = m.file_url || m.file_path;
-
+  
   if (m.file_type === "image") {
     const img = document.createElement("img");
     img.src = fileUrl;
     img.className = "msg-image rounded-lg max-w-full";
+    img.loading = "lazy";
     bubble.appendChild(img);
   }
   else if (m.file_type === "audio" || m.file_type === "voice") {
+    // PERBAIKAN: Audio player yang lebih baik
+    const audioContainer = document.createElement("div");
+    audioContainer.className = "audio-container flex items-center gap-2";
+    
     const audio = document.createElement("audio");
     audio.src = fileUrl;
     audio.controls = true;
-    audio.className = "mt-1";
-    bubble.appendChild(audio);
+    audio.preload = "metadata";
+    audio.className = "flex-1";
+    
+    // Indikator untuk voice message
+    const voiceIndicator = document.createElement("span");
+    voiceIndicator.className = "text-xs opacity-75";
+    
+    audioContainer.appendChild(voiceIndicator);
+    audioContainer.appendChild(audio);
+    bubble.appendChild(audioContainer);
   }
   else {
     const txt = document.createElement("div");
@@ -191,53 +218,74 @@ export function renderMessage(m) {
     bubble.appendChild(txt);
   }
 
-  // Tambahkan timestamp dengan Tailwind
+  // Timestamp
   const time = document.createElement("div");
   time.className = "message-time text-xs mt-1 opacity-75 text-right";
   const timestamp = m.created_at ? new Date(m.created_at) : new Date();
   time.textContent = timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   bubble.appendChild(time);
 
+  // Status indicator (untuk optimistic messages)
+  if (m.is_optimistic) {
+    const status = document.createElement("div");
+    status.className = "text-xs italic opacity-75 mt-1";
+    bubble.appendChild(status);
+  }
+
   elements.messagesEl.appendChild(bubble);
   scrollToBottom();
 }
-
-export function shouldShowMessageForContext(m) {
-  console.log('🔍 CHECKING MESSAGE CONTEXT:', {
-    currentContext: state.currentContext,
-    message: {
-      room_id: m.room_id,
-      recipient_id: m.recipient_id,
-      sender_id: m.sender_id
-    }
+export function shouldShowMessageForContext(message) {
+  console.log('🔍 Checking message context:', {
+    message: message,
+    currentContext: window.state?.currentContext,
+    myId: window.myId
   });
-
-  if (state.currentContext.type === "global") {
-    const shouldShow = !m.room_id && !m.recipient_id;
-    console.log('🌍 GLOBAL CHECK:', shouldShow);
-    return shouldShow;
-  }
   
-  if (state.currentContext.type === "room") {
-    const shouldShow = Number(m.room_id) === Number(state.currentContext.roomId);
-    console.log('🏠 ROOM CHECK:', shouldShow);
-    return shouldShow;
+  const currentContext = window.state?.currentContext;
+  if (!currentContext) {
+    console.log('❌ No current context');
+    return false;
   }
-  
-  if (state.currentContext.type === "private") {
-    const other = Number(state.currentContext.userId);
-    const recipientId = Number(m.recipient_id || 0);
-    const senderId = Number(m.sender_id);
 
-    const shouldShow =
-      (senderId === myId && recipientId === other) ||
-      (senderId === other && recipientId === myId);
-
-    console.log('🔒 PRIVATE CHECK:', { senderId, recipientId, myId, other, shouldShow });
-
-    return shouldShow;
+  // Untuk global messages
+  if (!message.room_id && !message.recipient_id && currentContext.type === "global") {
+    console.log('✅ Global message match');
+    return true;
   }
+
+  // Untuk room messages
+  if (message.room_id && currentContext.type === "room" && 
+      message.room_id === currentContext.roomId) {
+    console.log('✅ Room message match');
+    return true;
+  }
+
+  // Untuk private messages
+  if (message.recipient_id && currentContext.type === "private") {
+    // Check jika message adalah untuk current user
+    const isMessageToMe = message.recipient_id === myId;
+    const isMessageFromMe = message.sender_id === myId;
+    const isCurrentUser = currentContext.userId === message.sender_id || 
+                         currentContext.userId === message.recipient_id;
     
+    console.log('🔍 Private message check:', {
+      isMessageToMe,
+      isMessageFromMe,
+      isCurrentUser,
+      currentUserId: currentContext.userId,
+      messageRecipientId: message.recipient_id,
+      messageSenderId: message.sender_id
+    });
+    
+    if ((isMessageToMe && currentContext.userId === message.sender_id) ||
+        (isMessageFromMe && currentContext.userId === message.recipient_id)) {
+      console.log('✅ Private message match');
+      return true;
+    }
+  }
+
+  console.log('❌ No context match');
   return false;
 }
 
@@ -351,17 +399,36 @@ export function renderPendingRequests(requests) {
   // Check if requests is valid
   if (!requests || !Array.isArray(requests)) {
     console.error('❌ requests is not array:', requests);
+    console.log('Type of requests:', typeof requests);
+    
+    // Coba convert jika itu object
+    if (requests && typeof requests === 'object') {
+      console.log('🔍 Trying to extract array from object...');
+      
+      // Cek berbagai kemungkinan property
+      const possibleKeys = ['pending', 'requests', 'data', 'items', 'list'];
+      for (const key of possibleKeys) {
+        if (requests[key] && Array.isArray(requests[key])) {
+          console.log(`✅ Found array in "${key}", re-rendering...`);
+          return renderPendingRequests(requests[key]);
+        }
+      }
+    }
+    
     elements.pendingRequestsEl.innerHTML = `
       <div class="flex flex-col items-center justify-center
                   text-center gap-2 py-8
-                  bg-red-50 dark:bg-red-900/20
-                  rounded-xl border border-red-200 dark:border-red-700">
-        <p class="text-red-600 dark:text-red-400 font-semibold">
+                  bg-yellow-50 rounded-xl border border-yellow-200">
+        <p class="text-yellow-600 font-semibold">
           Invalid data format
         </p>
-        <small class="text-xs text-red-500 dark:text-red-300">
-          ${typeof requests}
+        <small class="text-xs text-yellow-500">
+          Type: ${typeof requests}
         </small>
+        <button onclick="window.debugPendingRequests && window.debugPendingRequests(${JSON.stringify(requests)})" 
+                class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">
+          Debug Data
+        </button>
       </div>
     `;
     return;
@@ -372,8 +439,12 @@ export function renderPendingRequests(requests) {
     elements.pendingRequestsEl.innerHTML = `
       <div class="flex flex-col items-center justify-center
                   py-10 text-center gap-2">
+        <div class="text-2xl mb-2">🎉</div>
         <p class="text-slate-400 text-sm">
-          🎉 No pending requests
+          No pending requests
+        </p>
+        <p class="text-xs text-slate-500">
+          When someone sends you a contact request, it will appear here.
         </p>
       </div>
     `;
@@ -382,108 +453,115 @@ export function renderPendingRequests(requests) {
   
   console.log(`🔄 Rendering ${requests.length} request(s)`);
   
+  // Hapus debug styles untuk production
   requests.forEach((request, index) => {
-    console.log(`📝 Processing request ${index}:`, request);
-    
-    // CREATE ELEMENT
     const el = document.createElement("div");
-    el.className = "requestItem";
-    el.style.border = "2px solid blue"; // DEBUG border
-    el.style.padding = "10px";
-    el.style.margin = "10px 0";
-    el.style.background = "#f0f8ff";
+    el.className = "requestItem mb-3";
     
-    // EXTRACT DATA CAREFULLY
-    const requestId = request.id || request.request_id || index;
+    // EXTRACT DATA dengan lebih robust
+    const requestId = request.id || request.request_id || request._id || index;
     const username = request.username || 
                      request.requester_username || 
-                     `User ${request.user_id || 'Unknown'}`;
+                     request.sender_username ||
+                     request.from_username ||
+                     `User ${request.user_id || request.sender_id || 'Unknown'}`;
     
-    console.log(`📋 Extracted data - ID: ${requestId}, Username: ${username}`);
+    // Format waktu
+    const createdAt = request.created_at || request.timestamp || request.date;
+    const timeText = createdAt ? formatTime(createdAt) : 'Recently';
     
-    // SIMPLE HTML - No complex formatting
+    console.log(`📋 Request ${index}:`, { requestId, username, timeText });
+    
+    // HTML yang lebih baik
     el.innerHTML = `
     <div class="flex items-center justify-between w-full
                 p-4 rounded-xl
-                bg-white/80 dark:bg-slate-800
-                shadow hover:shadow-md transition">
+                bg-white border border-slate-200
+                shadow-sm hover:shadow-md transition-all">
 
       <!-- INFO -->
-      <div>
-        <div class="font-semibold text-base text-slate-800 dark:text-white">
+      <div class="flex-1 min-w-0 mr-4">
+        <div class="font-semibold text-base text-slate-800 truncate">
           ${username}
         </div>
-
-        <div class="text-sm text-slate-500">
-          wants to connect
+        
+        <div class="text-sm text-slate-500 mt-1">
+          Sent you a contact request
         </div>
-
+        
         <div class="text-xs text-slate-400 mt-1">
-          Request ID: ${requestId}
+          ${timeText}
         </div>
       </div>
 
       <!-- ACTIONS -->
-      <div class="flex gap-2">
+      <div class="flex gap-2 flex-shrink-0">
         <button
-          class="test-accept-btn
-                bg-green-500 hover:bg-green-600
-                text-white text-sm
-                px-3 py-1 rounded-lg
-                transition"
-          data-id="${requestId}">
+          class="btn-accept-request
+                bg-emerald-500 hover:bg-emerald-600
+                text-white text-sm font-medium
+                px-4 py-2 rounded-lg
+                transition active:scale-95"
+          data-request-id="${requestId}"
+          data-username="${username}">
           Accept
         </button>
 
         <button
-          class="test-reject-btn
-                bg-red-500 hover:bg-red-600
-                text-white text-sm
-                px-3 py-1 rounded-lg
-                transition"
-          data-id="${requestId}">
+          class="btn-reject-request
+                bg-rose-500 hover:bg-rose-600
+                text-white text-sm font-medium
+                px-4 py-2 rounded-lg
+                transition active:scale-95"
+          data-request-id="${requestId}"
+          data-username="${username}">
           Reject
         </button>
       </div>
 
     </div>
   `;
-
     
-    // ADD SIMPLE EVENT LISTENERS
-    const acceptBtn = el.querySelector('.test-accept-btn');
+    // Event listeners
+    const acceptBtn = el.querySelector('.btn-accept-request');
     if (acceptBtn) {
       acceptBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        console.log(`🎯 ACCEPT clicked for request ${this.dataset.id}`);
-        alert(`Accept request ${this.dataset.id} from ${username}`);
+        const requestId = this.dataset.requestId;
+        const username = this.dataset.username;
+        
+        console.log(`✅ ACCEPT clicked for request ${requestId} from ${username}`);
         
         if (window.acceptContactRequest) {
-          window.acceptContactRequest(this.dataset.id);
+          window.acceptContactRequest(requestId);
+        } else {
+          alert(`Accept request from ${username}`);
         }
       });
     }
     
-    const rejectBtn = el.querySelector('.test-reject-btn');
+    const rejectBtn = el.querySelector('.btn-reject-request');
     if (rejectBtn) {
       rejectBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        console.log(`🎯 REJECT clicked for request ${this.dataset.id}`);
-        alert(`Reject request ${this.dataset.id} from ${username}`);
+        const requestId = this.dataset.requestId;
+        const username = this.dataset.username;
+        
+        console.log(`❌ REJECT clicked for request ${requestId} from ${username}`);
         
         if (window.rejectContactRequest) {
-          window.rejectContactRequest(this.dataset.id);
+          window.rejectContactRequest(requestId);
+        } else {
+          alert(`Reject request from ${username}`);
         }
       });
     }
     
-    // APPEND TO CONTAINER
     elements.pendingRequestsEl.appendChild(el);
-    console.log(`✅ Appended request ${index} to container`);
   });
   
   console.log('🎉 FINISHED renderPendingRequests');
-  console.log('Container children:', elements.pendingRequestsEl.children.length);
+  console.log('Rendered items:', elements.pendingRequestsEl.children.length);
 }
 
 // SEARCH RESULTS RENDERING
@@ -615,12 +693,30 @@ export function updateRecordingUI(started) {
   if (!elements.btnVoice || !elements.recordPopup) return;
   
   if (started) {
-    elements.btnVoice.textContent = "Send";
-    elements.btnVoice.classList.add("recording");
+    // Ubah tombol voice di chat input
+    elements.btnVoice.innerHTML = `
+      <span class="animate-pulse">⏺️</span>
+      <span class="text-xs ml-1">Stop</span>
+    `;
+    elements.btnVoice.classList.add("bg-red-100", "text-red-600");
+    elements.btnVoice.classList.remove("hover:bg-slate-100");
+    
+    // Tampilkan popup recording
     elements.recordPopup.classList.remove("hidden");
+    
+    // Reset progress bar
+    const progressBar = document.getElementById('recordProgress');
+    if (progressBar) {
+      progressBar.style.width = '0%';
+    }
+    
   } else {
-    elements.btnVoice.textContent = "🎤";
-    elements.btnVoice.classList.remove("recording");
+    // Kembalikan tombol voice ke semula
+    elements.btnVoice.innerHTML = "🎤";
+    elements.btnVoice.classList.remove("bg-red-100", "text-red-600");
+    elements.btnVoice.classList.add("hover:bg-slate-100");
+    
+    // Sembunyikan popup
     elements.recordPopup.classList.add("hidden");
   }
 }
@@ -628,9 +724,9 @@ export function updateRecordingUI(started) {
 export function updateRecordTimer(time) {
   if (!elements.recordTimerEl) return;
   
-  const m = Math.floor(time / 60);
-  const s = String(time % 60).padStart(2, "0");
-  elements.recordTimerEl.textContent = `${m}:${s}`;
+  const minutes = Math.floor(time / 60);
+  const seconds = String(time % 60).padStart(2, "0");
+  elements.recordTimerEl.textContent = `${minutes}:${seconds}`;
 }
 
 // Call UI
@@ -701,10 +797,67 @@ export function closeAddContactModal() {
 }
 
 export function updatePendingBadge(count) {
-  if (elements.pendingBadgeEl) {
-    elements.pendingBadgeEl.textContent = count;
-    elements.pendingBadgeEl.style.display = count > 0 ? 'inline-block' : 'none';
+  console.log('🔴 UPDATE BADGE dengan count:', count);
+  
+  // Cari badge
+  let badge = document.getElementById('pendingBadge');
+  
+  if (!badge) {
+    console.log('🔍 Badge tidak ditemukan, membuat baru...');
+    badge = createBadgeElement();
   }
+  
+  console.log('✅ Badge ditemukan:', badge);
+  console.log('📌 Text sekarang:', badge.textContent);
+  
+  // Update count
+  badge.textContent = count;
+  
+  // Show/hide berdasarkan count
+  if (count > 0) {
+    console.log(`🎯 Menampilkan badge dengan angka ${count}`);
+    
+    // TAMPILKAN badge
+    badge.classList.remove('hidden', 'scale-0', 'opacity-0');
+    badge.classList.add('flex', 'scale-100', 'opacity-100');
+    
+    // Tambahkan class untuk animasi
+    badge.classList.add('animate-ping', 'animate-once');
+    
+    // Hapus animasi setelah selesai
+    setTimeout(() => {
+      badge.classList.remove('animate-ping', 'animate-once');
+    }, 500);
+    
+  } else {
+    console.log('👁️‍🗨️ Menyembunyikan badge (count = 0)');
+    
+    // SEMBUNYIKAN badge
+    badge.classList.add('hidden', 'scale-0', 'opacity-0');
+    badge.classList.remove('flex', 'scale-100', 'opacity-100');
+  }
+  
+  console.log('✅ Badge diperbarui. Text baru:', badge.textContent);
+  console.log('✅ Classes badge sekarang:', badge.className);
+}
+
+// Fungsi bantu untuk membuat badge jika tidak ada
+function createBadgeElement() {
+  const requestsTab = document.querySelector('[data-tab="requests"]');
+  if (!requestsTab) {
+    console.error('❌ Tab Requests tidak ditemukan');
+    return null;
+  }
+  
+  const badge = document.createElement('span');
+  badge.id = 'pendingBadge';
+  badge.className = 'absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold px-1.5 rounded-full flex items-center justify-center transform transition-all duration-300 scale-0 opacity-0 shadow-lg border-2 border-white';
+  badge.textContent = '0';
+  
+  requestsTab.appendChild(badge);
+  console.log('✅ Badge baru dibuat');
+  
+  return badge;
 }
 
 // Helper function
@@ -782,9 +935,20 @@ export function setupStaticEventListeners() {
     });
   }
   
+  // Cancel record button
   if (elements.btnCancelRecord) {
     elements.btnCancelRecord.addEventListener("click", () => {
+      console.log('❌ Cancel recording clicked');
       if (window.stopRecording) window.stopRecording(true);
+    });
+  }
+  
+  // Send record button (NEW)
+  const btnSendRecord = document.getElementById('btnSendRecord');
+  if (btnSendRecord) {
+    btnSendRecord.addEventListener("click", () => {
+      console.log('✅ Send recording clicked');
+      if (window.finishRecording) window.finishRecording();
     });
   }
   
@@ -1141,107 +1305,4 @@ export function setupEventListenerss() {
   setupStaticEventListeners();
   setupEventDelegation();
   console.log('🎉 SETUP EVENT LISTENERS COMPLETED');
-}
-
-// ==================== DEBUG FUNCTIONS ====================
-// ==================== DEBUG FUNCTIONS ====================
-export function debugModalClose() {
-  console.log('=== DEBUG MODAL CLOSE ===');
-  
-  const closeBtn = document.getElementById('btnCloseModal');
-  console.log('Close button found:', !!closeBtn);
-  console.log('Close button element:', closeBtn);
-  
-  if (closeBtn) {
-    console.log('Testing click...');
-    
-    // Test 1: Direct click
-    closeBtn.click();
-    
-    // Test 2: Manual trigger
-    setTimeout(() => {
-      console.log('Manual trigger after 500ms...');
-      const event = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-      closeBtn.dispatchEvent(event);
-    }, 500);
-  } else {
-    console.error('❌ Close button not found by ID');
-    
-    // Cari semua tombol ×
-    const allButtons = document.querySelectorAll('button');
-    allButtons.forEach(btn => {
-      if (btn.textContent.includes('×')) {
-        console.log('Found × button:', btn);
-        console.log('Clicking it...');
-        btn.click();
-      }
-    });
-  }
-  
-  // Test fungsi close
-  console.log('Testing closeAddContactModal function...');
-  if (typeof closeAddContactModal === 'function') {
-    closeAddContactModal();
-  } else {
-    console.error('❌ closeAddContactModal function not found');
-  }
-}
-
-export function debugAllButtons() {
-  console.log('=== DEBUG ALL BUTTONS ===');
-  const buttons = document.querySelectorAll('button');
-  console.log(`Total buttons: ${buttons.length}`);
-  
-  buttons.forEach((btn, i) => {
-    console.log(`${i}: ${btn.id || 'no-id'} - "${btn.textContent.trim()}"`);
-    
-    // Check event listeners jika function tersedia
-    if (typeof getEventListeners === 'function') {
-      const listeners = getEventListeners(btn);
-      if (listeners && listeners.click) {
-        console.log(`   Click listeners: ${listeners.click.length}`);
-      }
-    }
-  });
-}
-
-export function debugElements() {
-  console.log('=== DEBUG ALL ELEMENTS ===');
-  Object.keys(elements).forEach(key => {
-    const element = elements[key];
-    if (element) {
-      console.log(`✅ ${key}:`, element.tagName, element.id || 'no-id');
-    } else {
-      console.log(`❌ ${key}: NOT FOUND`);
-    }
-  });
-}
-
-export function testModalManually() {
-  console.log('=== MANUAL MODAL TEST ===');
-  
-  // Show modal
-  showAddContactModal();
-  
-  // Wait and try to close
-  setTimeout(() => {
-    console.log('Attempting to close modal...');
-    
-    // Method 1: Direct function call
-    closeAddContactModal();
-    
-    // Method 2: Click close button if exists
-    const closeBtn = document.getElementById('btnCloseModal');
-    if (closeBtn) {
-      console.log('Found close button, clicking...');
-      closeBtn.click();
-    }
-    
-    // Method 3: Simulate Escape key
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-  }, 1000);
 }
