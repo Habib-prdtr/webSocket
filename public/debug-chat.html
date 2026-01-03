@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Chat Clear</title>
+</head>
+<body>
+    <h1>Debug Chat Clear</h1>
+    <div id="debug"></div>
+    
+    <script>
+        // Fungsi untuk test API clear chat
+        async function testClearChat() {
+            const token = localStorage.getItem('token');
+            const context = {
+                type: "private",
+                userId: "123", // ganti dengan user id target
+                username: "testuser"
+            };
+            
+            const url = `/api/chat/clear/private/${context.userId}`;
+            
+            try {
+                const res = await fetch(url, {
+                    method: "DELETE",
+                    headers: {
+                        Authorization: "Bearer " + token,
+                        "Content-Type": "application/json",
+                    },
+                });
+                
+                const result = await res.json();
+                document.getElementById('debug').innerHTML = 
+                    `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+                    
+                console.log("API Response:", result);
+                
+                // Cek sessionStorage
+                const cleared = sessionStorage.getItem('clearedContexts');
+                console.log("SessionStorage:", cleared);
+                
+            } catch (error) {
+                document.getElementById('debug').innerHTML = 
+                    `Error: ${error.message}`;
+                console.error(error);
+            }
+        }
+        
+        // Test
+        testClearChat();
+    </script>
+</body>
+</html>
