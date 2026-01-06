@@ -57,8 +57,6 @@ export function initUI() {
   
   // Setup tabs
   if (elements.tabBtns) {
-    console.log('🔧 Setting up tab system...');
-    
     // Hapus event listener lama
     elements.tabBtns.forEach(btn => {
       const newBtn = btn.cloneNode(true);
@@ -74,7 +72,6 @@ export function initUI() {
         e.stopPropagation();
         
         const tab = this.dataset.tab;
-        console.log(`📑 Switching to tab: ${tab}`);
         
         // Update active tab button styling
         freshTabBtns.forEach(b => {
@@ -99,22 +96,15 @@ export function initUI() {
         
         const tabContent = document.getElementById(contentId);
         if (tabContent) {
-          console.log(`✅ Found content: ${contentId}`);
           tabContent.classList.remove('hidden');
           tabContent.classList.add('active');
-        } else {
-          console.error(`❌ Tab content not found: ${contentId}`);
         }
         
         // Load data for selected tab
         if (tab === 'requests' && window.loadPendingRequests) {
-          console.log('🔄 Loading requests data...');
           setTimeout(() => window.loadPendingRequests(), 100);
         } else if (tab === 'contacts' && window.loadContacts) {
-          console.log('🔄 Loading contacts data...');
           setTimeout(() => window.loadContacts(), 100);
-        } else if (tab === 'rooms') {
-          console.log('🔄 Rooms tab selected');
         }
       });
     });
@@ -122,13 +112,8 @@ export function initUI() {
     // Set initial active tab (rooms)
     const roomsTab = document.querySelector('.tab-btn[data-tab="rooms"]');
     if (roomsTab) {
-      console.log('🎯 Activating rooms tab');
       roomsTab.click();
-    } else {
-      console.error('❌ Rooms tab button not found!');
     }
-  } else {
-    console.error('❌ Tab buttons not found in DOM');
   }
 }
 
@@ -142,70 +127,27 @@ export function scrollToBottom() {
 export function clearMessages() {
   if (!elements.messagesEl) return;
   
-  // Hapus semua children
   while (elements.messagesEl.firstChild) {
     elements.messagesEl.removeChild(elements.messagesEl.firstChild);
   }
-  
-  console.log('🧹 All messages cleared from UI');
 }
-function normalizeMessageData(message) {
-  if (!message) return null;
-  
-  const normalized = { ...message };
-  
-  // Normalize ID
-  if (normalized._id) {
-    normalized.id = normalized._id.toString();
-    delete normalized._id;
-  }
-  
-  if (!normalized.id || typeof normalized.id !== 'string') {
-    normalized.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-  
-  // Normalize sender_id
-  if (normalized.sender_id && typeof normalized.sender_id !== 'string') {
-    normalized.sender_id = String(normalized.sender_id);
-  }
-  
-  // Normalize timestamps
-  if (normalized.created_at && !(normalized.created_at instanceof Date)) {
-    try {
-      normalized.created_at = new Date(normalized.created_at).toISOString();
-    } catch (e) {
-      normalized.created_at = new Date().toISOString();
-    }
-  }
-  
-  // Ensure content is string
-  if (normalized.content && typeof normalized.content !== 'string') {
-    normalized.content = String(normalized.content);
-  }
-  
-  return normalized;
-}
-// PERBAIKAN: Fungsi renderMessage yang lebih baik dengan error handling
+
 export function renderMessage(m) {
   if (!elements.messagesEl || !m) return;
   
-  // PERBAIKAN: Generate ID jika tidak ada
   const messageId = m.id || m._id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  // Cek apakah message sudah ada
   const existingMsg = document.getElementById(`message-${messageId}`);
   if (existingMsg && !m.is_optimistic && !m.is_temp) {
-    console.log(`⚠️ Message ${messageId} already exists, skipping`);
     return;
   }
   
   const bubble = document.createElement("div");
   bubble.id = `message-${messageId}`;
   
-  const isMyMessage = m.sender_id == myId; // Gunakan == untuk type coercion
+  const isMyMessage = m.sender_id == myId;
   const messageType = m.file_type || 'text';
   
-  // Handle audio/voice
   const isVoice = messageType === "voice" || messageType === "audio";
   
   if (isMyMessage) {
@@ -268,7 +210,6 @@ export function renderMessage(m) {
   
   elements.messagesEl.appendChild(bubble);
   
-  // Scroll hanya jika ini message baru (bukan dari load)
   if (!m.is_from_load) {
     setTimeout(() => {
       if (elements.messagesEl) {
@@ -278,66 +219,40 @@ export function renderMessage(m) {
   }
 }
 
-// PERBAIKAN UTAMA: shouldShowMessageForContext
 export function shouldShowMessageForContext(message) {
   const currentContext = window.state?.currentContext;
   if (!currentContext) {
-    console.log('❌ No current context');
     return false;
   }
 
-  console.log('🔍 Checking message for context:', {
-    messageId: message.id,
-    messageType: message.room_id ? 'room' : (message.recipient_id ? 'private' : 'global'),
-    currentContextType: currentContext.type,
-    currentUserId: currentContext.userId,
-    myId: window.myId
-  });
-
   // Global messages
   if (!message.room_id && !message.recipient_id && currentContext.type === "global") {
-    console.log('✅ Global message match');
     return true;
   }
 
   // Room messages
   if (message.room_id && currentContext.type === "room" && 
       Number(message.room_id) === Number(currentContext.roomId)) {
-    console.log('✅ Room message match');
     return true;
   }
 
-  // Private messages - PERBAIKAN CRITICAL!
+  // Private messages
   if (message.recipient_id && currentContext.type === "private") {
     const messageRecipientId = Number(message.recipient_id);
     const messageSenderId = Number(message.sender_id);
     const currentUserId = Number(currentContext.userId);
     const myIdNum = Number(window.myId);
     
-    console.log('🔍 Private message details:', {
-      messageRecipientId,
-      messageSenderId,
-      currentUserId,
-      myIdNum
-    });
-    
-    // DUA KEMUNGKINAN untuk private messages:
-    // 1. Message dari saya ke current user
     const isFromMeToCurrent = (messageSenderId === myIdNum && messageRecipientId === currentUserId);
-    
-    // 2. Message dari current user ke saya
     const isFromCurrentToMe = (messageSenderId === currentUserId && messageRecipientId === myIdNum);
     
     if (isFromMeToCurrent || isFromCurrentToMe) {
-      console.log('✅ Private message match!');
       return true;
     }
     
-    console.log('❌ Private message NOT match');
     return false;
   }
 
-  console.log('❌ No context match at all');
   return false;
 }
 
@@ -363,31 +278,30 @@ export function renderRooms(list, setContextCallback) {
   elements.roomsListEl.appendChild(globalItem);
 
   // Rooms list
-  list.forEach((room) => {
-    const el = document.createElement("div");
-    el.className = "roomItem p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors flex items-center gap-3 border-b border-slate-100 last:border-b-0";
+  // list.forEach((room) => {
+  //   const el = document.createElement("div");
+  //   el.className = "roomItem p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors flex items-center gap-3 border-b border-slate-100 last:border-b-0";
     
-    el.innerHTML = `
-      <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
-        <span class="text-slate-600">👥</span>
-      </div>
-      <div class="flex-1">
-        <div class="font-semibold text-slate-800">${room.name}</div>
-        <div class="text-xs text-slate-400">${room.member_count || 0} members</div>
-      </div>
-    `;
+  //   el.innerHTML = `
+  //     <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+  //       <span class="text-slate-600">👥</span>
+  //     </div>
+  //     <div class="flex-1">
+  //       <div class="font-semibold text-slate-800">${room.name}</div>
+  //       <div class="text-xs text-slate-400">${room.member_count || 0} members</div>
+  //     </div>
+  //   `;
     
-    el.onclick = () => setContextCallback({ 
-      type: "room", 
-      roomId: room.id, 
-      name: room.name 
-    });
+  //   el.onclick = () => setContextCallback({ 
+  //     type: "room", 
+  //     roomId: room.id, 
+  //     name: room.name 
+  //   });
     
-    elements.roomsListEl.appendChild(el);
-  });
+  //   elements.roomsListEl.appendChild(el);
+  // });
 }
 
-// PERBAIKAN: Contacts rendering dengan event delegation yang benar
 export function renderContacts(list, setContextCallback, startCallCallback) {
   if (!elements.contactsListEl) return;
   
@@ -418,7 +332,6 @@ export function renderContacts(list, setContextCallback, startCallCallback) {
       new Date(contact.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 
       '';
     
-    // Simpan data di dataset
     el.dataset.contactId = contactId;
     el.dataset.username = username;
     el.dataset.online = isOnline.toString();
@@ -476,12 +389,8 @@ export function renderContacts(list, setContextCallback, startCallCallback) {
   });
 }
 
-// PERBAIKAN: Pending requests rendering yang lebih clean
 export function renderPendingRequests(requests) {
-  console.log('🎯 Rendering pending requests:', requests?.length || 0);
-  
   if (!elements.pendingRequestsEl) {
-    console.error('❌ pendingRequestsEl not found!');
     return;
   }
   
@@ -595,23 +504,19 @@ export function renderSearchResults(users) {
 }
 
 export function updateUserStatus(userId, isOnline) {
-  // Update di contacts list
   const contactEls = document.querySelectorAll(`.contactItem[data-contact-id="${userId}"]`);
   
   contactEls.forEach(contactEl => {
-    // Update avatar background
     const avatarDiv = contactEl.querySelector('.w-10.h-10.rounded-full');
     if (avatarDiv) {
       avatarDiv.className = `w-10 h-10 rounded-full ${isOnline ? 'bg-green-100' : 'bg-slate-100'} flex items-center justify-center`;
     }
     
-    // Update online indicator
     const onlineDot = contactEl.querySelector('.absolute.bottom-0.right-0');
     if (onlineDot) {
       onlineDot.className = `absolute bottom-0 right-0 w-3 h-3 ${isOnline ? 'bg-green-500' : 'bg-slate-400'} border-2 border-white rounded-full`;
     }
     
-    // Update status text
     const statusText = contactEl.querySelector('.text-xs.text-slate-400');
     if (statusText) {
       if (isOnline) {
@@ -622,7 +527,6 @@ export function updateUserStatus(userId, isOnline) {
       }
     }
     
-    // Update call button
     const callBtn = contactEl.querySelector('.btn-call-contact');
     if (callBtn) {
       if (isOnline) {
@@ -638,7 +542,6 @@ export function updateUserStatus(userId, isOnline) {
       }
     }
     
-    // Update dataset
     contactEl.dataset.online = isOnline.toString();
   });
 }
@@ -668,7 +571,6 @@ export function updateRecordingUI(started) {
   if (!elements.btnVoice || !elements.recordPopup) return;
   
   if (started) {
-    // Ubah tombol voice di chat input
     elements.btnVoice.innerHTML = `
       <span class="animate-pulse">⏺️</span>
       <span class="text-xs ml-1">Stop</span>
@@ -676,16 +578,13 @@ export function updateRecordingUI(started) {
     elements.btnVoice.classList.add("bg-red-100", "text-red-600");
     elements.btnVoice.classList.remove("hover:bg-slate-100");
     
-    // Tampilkan popup recording
     elements.recordPopup.classList.remove("hidden");
     
   } else {
-    // Kembalikan tombol voice ke semula
     elements.btnVoice.innerHTML = "🎤";
     elements.btnVoice.classList.remove("bg-red-100", "text-red-600");
     elements.btnVoice.classList.add("hover:bg-slate-100");
     
-    // Sembunyikan popup
     elements.recordPopup.classList.add("hidden");
   }
 }
@@ -697,10 +596,9 @@ export function updateRecordTimer(time) {
   const seconds = String(time % 60).padStart(2, "0");
   elements.recordTimerEl.textContent = `${minutes}:${seconds}`;
   
-  // Update progress bar
   const progressBar = document.getElementById('recordProgress');
   if (progressBar) {
-    const progress = Math.min((time / 120) * 100, 100); // Max 2 minutes
+    const progress = Math.min((time / 120) * 100, 100);
     progressBar.style.width = `${progress}%`;
     progressBar.className = `h-full rounded-full ${progress > 80 ? 'bg-red-500' : 'bg-indigo-500'}`;
   }
@@ -738,26 +636,18 @@ export function setCallerName(name) {
 
 // Contacts Modal
 export function showAddContactModal() {
-  console.log('🟡 showAddContactModal called');
-  
   if (elements.addContactModal) {
     elements.addContactModal.classList.remove("hidden");
     if (elements.searchContactInput) {
       elements.searchContactInput.focus();
     }
-    console.log('✅ Modal shown');
-  } else {
-    console.error('❌ addContactModal element not found!');
   }
 }
 
 export function closeAddContactModal() {
-  console.log('🟡 closeAddContactModal called');
-  
   if (elements.addContactModal) {
     elements.addContactModal.classList.add("hidden");
     
-    // Clear search results
     if (elements.searchResultsEl) {
       elements.searchResultsEl.innerHTML = `
         <div class="flex items-center justify-center py-8 text-slate-400 text-sm">
@@ -766,11 +656,9 @@ export function closeAddContactModal() {
       `;
     }
     
-    // Clear search input
     if (elements.searchContactInput) {
       elements.searchContactInput.value = '';
     }
-    console.log('✅ Modal hidden');
   }
 }
 
@@ -778,7 +666,6 @@ export function updatePendingBadge(count) {
   let badge = document.getElementById('pendingBadge');
   
   if (!badge) {
-    // Create badge element
     const requestsTab = document.querySelector('[data-tab="requests"]');
     if (!requestsTab) return;
     
@@ -790,15 +677,12 @@ export function updatePendingBadge(count) {
     requestsTab.appendChild(badge);
   }
   
-  // Update count
   badge.textContent = count;
   
-  // Show/hide badge
   if (count > 0) {
     badge.classList.remove('hidden', 'scale-0', 'opacity-0');
     badge.classList.add('flex', 'scale-100', 'opacity-100');
     
-    // Add animation
     badge.classList.add('animate-ping', 'animate-once');
     setTimeout(() => {
       badge.classList.remove('animate-ping', 'animate-once');
@@ -825,10 +709,7 @@ function formatTime(timestamp) {
   return date.toLocaleDateString();
 }
 
-// PERBAIKAN: Setup event listeners yang lebih baik
 export function setupStaticEventListeners() {
-  console.log('🔧 Setting up STATIC event listeners...');
-  
   // Send message
   if (elements.btnSend) {
     elements.btnSend.addEventListener("click", () => {
@@ -872,7 +753,6 @@ export function setupStaticEventListeners() {
       const file = e.target.files[0];
       if (!file) return;
       
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size should be less than 5MB');
         return;
@@ -897,7 +777,6 @@ export function setupStaticEventListeners() {
   // Cancel record
   if (elements.btnCancelRecord) {
     elements.btnCancelRecord.addEventListener("click", () => {
-      console.log('❌ Cancel recording clicked');
       if (window.stopRecording) window.stopRecording(true);
     });
   }
@@ -906,7 +785,6 @@ export function setupStaticEventListeners() {
   const btnSendRecord = document.getElementById('btnSendRecord');
   if (btnSendRecord) {
     btnSendRecord.addEventListener("click", () => {
-      console.log('✅ Send recording clicked');
       if (window.finishRecording) window.finishRecording();
     });
   }
@@ -940,7 +818,6 @@ export function setupStaticEventListeners() {
   // Add contact button
   if (elements.btnAddContact) {
     elements.btnAddContact.addEventListener("click", function(e) {
-      console.log('🟡 Add Contact button clicked!');
       showAddContactModal();
     });
   }
@@ -948,21 +825,17 @@ export function setupStaticEventListeners() {
   // Search contacts button
   if (elements.btnSearchContacts) {
     elements.btnSearchContacts.addEventListener("click", function(e) {
-      console.log('🟡 Search Contacts button clicked!');
       showAddContactModal();
     });
   }
   
   // Close modal button
   if (elements.btnCloseModal) {
-    // Remove old listener
     const newCloseBtn = elements.btnCloseModal.cloneNode(true);
     elements.btnCloseModal.parentNode.replaceChild(newCloseBtn, elements.btnCloseModal);
     elements.btnCloseModal = newCloseBtn;
     
-    // Add new listener
     elements.btnCloseModal.addEventListener("click", function(e) {
-      console.log('❌ Close Modal button clicked!');
       e.preventDefault();
       e.stopPropagation();
       closeAddContactModal();
@@ -973,7 +846,6 @@ export function setupStaticEventListeners() {
   if (elements.addContactModal) {
     elements.addContactModal.addEventListener("click", function(e) {
       if (e.target === this) {
-        console.log('✅ Clicked outside modal, closing...');
         closeAddContactModal();
       }
     });
@@ -982,7 +854,6 @@ export function setupStaticEventListeners() {
   // Search button in modal
   if (elements.btnSearchContact) {
     elements.btnSearchContact.addEventListener("click", () => {
-      console.log('🔍 Search button clicked');
       if (window.searchUsers) {
         window.searchUsers();
       }
@@ -994,21 +865,15 @@ export function setupStaticEventListeners() {
     elements.searchContactInput.addEventListener("keypress", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        console.log('🔍 Enter key pressed in search');
         if (window.searchUsers) {
           window.searchUsers();
         }
       }
     });
   }
-  
-  console.log('✅ Static event listeners setup completed');
 }
 
-// PERBAIKAN: Event delegation yang lebih efisien
 export function setupEventDelegation() {
-  console.log('🔧 Setting up EVENT DELEGATION...');
-  
   // Delegasi untuk kontak list
   if (elements.contactsListEl) {
     elements.contactsListEl.addEventListener('click', function(e) {
@@ -1016,9 +881,7 @@ export function setupEventDelegation() {
       const contactItem = target.closest('.contactItem');
       
       if (!contactItem) {
-        // Tombol "Add your first contact"
         if (target.id === 'btnAddFirstContact' || target.closest('#btnAddFirstContact')) {
-          console.log('🟡 Add First Contact button clicked');
           e.stopPropagation();
           showAddContactModal();
         }
@@ -1031,7 +894,6 @@ export function setupEventDelegation() {
       
       // Tombol call contact
       if (target.classList.contains('btn-call-contact') || target.closest('.btn-call-contact')) {
-        console.log('📞 Call contact clicked:', contactId);
         e.stopPropagation();
         
         if (isOnline && window.startCall && contactId) {
@@ -1044,7 +906,6 @@ export function setupEventDelegation() {
       
       // Tombol chat contact
       if (target.classList.contains('btn-chat-contact') || target.closest('.btn-chat-contact')) {
-        console.log('💬 Chat contact clicked:', contactId);
         e.stopPropagation();
         
         if (window.setContext && contactId && username) {
@@ -1059,7 +920,6 @@ export function setupEventDelegation() {
       
       // Tombol remove contact
       if (target.classList.contains('btn-remove-contact') || target.closest('.btn-remove-contact')) {
-        console.log('🗑️ Remove contact clicked:', contactId);
         e.stopPropagation();
         
         if (confirm(`Remove ${username} from contacts?`)) {
@@ -1072,8 +932,6 @@ export function setupEventDelegation() {
       
       // Click pada contact item (untuk chat)
       if (!target.closest('.action-btn')) {
-        console.log('💬 Contact item clicked:', contactId);
-        
         if (window.setContext && contactId && username) {
           window.setContext({
             type: "private",
@@ -1094,9 +952,7 @@ export function setupEventDelegation() {
       if (target.classList.contains('btn-accept-request') || target.closest('.btn-accept-request')) {
         const button = target.classList.contains('btn-accept-request') ? target : target.closest('.btn-accept-request');
         const requestId = button.dataset.requestId;
-        const username = button.dataset.username;
         
-        console.log('✅ Accept request clicked:', requestId);
         e.stopPropagation();
         
         if (window.acceptContactRequest && requestId) {
@@ -1109,9 +965,7 @@ export function setupEventDelegation() {
       if (target.classList.contains('btn-reject-request') || target.closest('.btn-reject-request')) {
         const button = target.classList.contains('btn-reject-request') ? target : target.closest('.btn-reject-request');
         const requestId = button.dataset.requestId;
-        const username = button.dataset.username;
         
-        console.log('❌ Reject request clicked:', requestId);
         e.stopPropagation();
         
         if (window.rejectContactRequest && requestId) {
@@ -1127,12 +981,10 @@ export function setupEventDelegation() {
     elements.searchResultsEl.addEventListener('click', function(e) {
       const target = e.target;
       
-      // Add button di search results
       if (target.classList.contains('btn-add-search') || target.closest('.btn-add-search')) {
         const button = target.classList.contains('btn-add-search') ? target : target.closest('.btn-add-search');
         const username = button.dataset.username;
         
-        console.log('➕ Add contact from search clicked:', username);
         e.stopPropagation();
         
         if (window.sendContactRequest && username) {
@@ -1149,32 +1001,23 @@ export function setupEventDelegation() {
   
   // Global delegation untuk close modal buttons
   document.addEventListener('click', function(e) {
-    // Tombol close modal (×)
     if (e.target.id === 'btnCloseModal' || 
         e.target.textContent.trim() === '×' ||
         (e.target.tagName === 'BUTTON' && e.target.textContent.includes('×'))) {
-      console.log('❌ Close button clicked via GLOBAL delegation');
       e.preventDefault();
       e.stopPropagation();
       closeAddContactModal();
       return;
     }
     
-    // Click outside modal
     if (e.target.id === 'addContactModal') {
-      console.log('🟡 Clicked modal background via GLOBAL delegation');
       closeAddContactModal();
       return;
     }
   });
-  
-  console.log('✅ Event delegation setup completed');
 }
 
-// Fungsi utama untuk setup semua event listeners
 export function setupEventListenerss() {
-  console.log('🚀 SETUP EVENT LISTENERS STARTED');
   setupStaticEventListeners();
   setupEventDelegation();
-  console.log('🎉 SETUP EVENT LISTENERS COMPLETED');
 }

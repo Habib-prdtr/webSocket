@@ -131,17 +131,63 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ==================== INIT ENDPOINT (PERBAIKI INI) ====================
+// ==================== INIT ENDPOINT (TAMBAH LOGGING DETAIL) ====================
 app.get('/api/init', authMiddleware, async (req, res) => {
   try {
-    console.log(`📦 INIT untuk user ${req.user.id} (${req.user.username})`);
+    const userId = req.user.id;
+    const username = req.user.username;
     
-    // 1. Get ALL users (untuk status online, tapi nanti frontend filter untuk kontak)
+    console.log(`📦 INIT untuk user ${userId} (${username})`);
+    
+    // **PERBAIKAN KRITIS**: Gunakan timestamp yang konsisten
+    const [globalCleared] = await pool.query(
+      `SELECT cleared_at FROM user_chat_clears 
+       WHERE user_id = ? AND room_id IS NULL AND contact_id IS NULL
+       LIMIT 1`,
+      [userId]
+    );
+    
+    let globalClearedAt = null;
+    if (globalCleared.length > 0 && globalCleared[0].cleared_at) {
+      // **PERBAIKAN**: Simpan sebagai Date object, bukan string
+      globalClearedAt = new Date(globalCleared[0].cleared_at);
+      console.log(`✅ User ${userId} CLEARED global chat at: ${globalClearedAt.toISOString()}`);
+    } else {
+      console.log(`❌ User ${userId} NO global cleared record found`);
+      globalClearedAt = new Date('1970-01-01'); // Default sangat lama
+    }
+    
+    // DEBUG: Log query parameter
+    console.log(`🔍 Query param cleared_at: ${globalClearedAt.toISOString()}`);
+    
+    // **PERBAIKAN**: Query yang benar dengan parameter binding
+    const [msgs] = await pool.query(
+      `SELECT m.*, u.username 
+       FROM messages m
+       JOIN users u ON u.id = m.sender_id
+       WHERE m.room_id IS NULL 
+         AND m.recipient_id IS NULL
+         AND m.created_at > ?
+       ORDER BY m.id ASC
+       LIMIT 500`,
+      [globalClearedAt] // Pass Date object langsung
+    );
+    
+    console.log(`📊 Found ${msgs.length} global messages for user ${userId}`);
+    
+    // **DEBUG**: Tampilkan 5 pesan pertama untuk verifikasi
+    if (msgs.length > 0) {
+      console.log(`📝 Sample messages (first 5):`);
+      msgs.slice(0, 5).forEach((msg, i) => {
+        console.log(`  ${i+1}. ID:${msg.id} | Time:${msg.created_at} | From:${msg.username}`);
+      });
+    }
+    
+    // Get other data
     const [allUsers] = await pool.query(
       'SELECT id, username, is_online, last_seen FROM users ORDER BY username ASC'
     );
     
-    // 2. Get user's contacts
     const [contacts] = await pool.query(`
       SELECT 
         u.id,
@@ -153,45 +199,30 @@ app.get('/api/init', authMiddleware, async (req, res) => {
       WHERE c.user_id = ? 
       AND c.status = 'accepted'
       ORDER BY u.username ASC
-    `, [req.user.id]);
+    `, [userId]);
     
-    // 3. Get rooms
     const [rooms] = await pool.query('SELECT id, name FROM rooms ORDER BY id ASC');
-
-    // 4. Get global messages DENGAN FILTER cleared_chats
-    const [msgs] = await pool.query(
-      `SELECT m.*, u.username 
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.room_id IS NULL AND m.recipient_id IS NULL
-         AND m.created_at > COALESCE(
-           (SELECT cleared_at FROM user_chat_clears
-             WHERE user_id = ? AND room_id IS NULL AND contact_id IS NULL
-             LIMIT 1),
-           '1970-01-01'
-         )
-       ORDER BY m.id ASC
-       LIMIT 500`,
-      [req.user.id]
-    );
-
-    // 5. Get pending contact requests count
+    
     const [[pendingCount]] = await pool.query(`
       SELECT COUNT(*) as count FROM contacts 
       WHERE contact_id = ? AND status = 'pending'
-    `, [req.user.id]);
-
-    console.log(`✅ INIT: ${allUsers.length} users, ${contacts.length} contacts, ${msgs.length} global messages`);
+    `, [userId]);
     
     return res.json({ 
-      users: allUsers, // KIRIM SEMUA USER untuk compatibility
-      contacts: contacts, // kirim juga kontak terpisah
+      users: allUsers,
+      contacts: contacts,
       rooms: rooms, 
       messages: msgs,
-      pendingCount: parseInt(pendingCount.count)
+      pendingCount: parseInt(pendingCount.count),
+      debug: {
+        clearedAt: globalClearedAt.toISOString(),
+        userId: userId
+      }
     });
+    
   } catch (e) {
-    console.error('init error', e);
+    console.error('❌ INIT ERROR:', e);
+    console.error('Stack:', e.stack);
     return res.status(500).json({ error: 'Server error: ' + e.message });
   }
 });
@@ -549,32 +580,20 @@ app.get('/api/private/:me/:target', authMiddleware, async (req, res) => {
       // Kembalikan pesan kosong saja, jangan error
     }
 
-    // Cek cleared_at
+    // Cek cleared_at - PERBAIKAN: Pastikan format date benar
     const [[clearCheck]] = await pool.query(
       'SELECT cleared_at FROM user_chat_clears WHERE user_id = ? AND contact_id = ?',
       [currentUserId, u2.id]
     );
 
-    let clearedAt = null;
-    if (clearCheck) {
-      clearedAt = clearCheck.cleared_at;
+    let clearedAt = '1970-01-01';
+    if (clearCheck && clearCheck.cleared_at) {
+      clearedAt = new Date(clearCheck.cleared_at).toISOString();
     }
 
-    if (!clearedAt) {
-      const [rows] = await pool.query(
-        `SELECT m.id, m.sender_id, m.recipient_id, m.room_id,
-                m.content, m.file_url, m.file_type,
-                m.created_at, u.username
-         FROM messages m
-         JOIN users u ON u.id = m.sender_id
-         WHERE ((m.sender_id = ? AND m.recipient_id = ?)
-             OR (m.sender_id = ? AND m.recipient_id = ?))
-         ORDER BY m.id ASC`,
-        [u1.id, u2.id, u2.id, u1.id]
-      );
-      return res.json({ messages: rows });
-    }
+    console.log(`🔍 Loading private chat ${u1.id} <-> ${u2.id}, cleared at: ${clearedAt}`);
 
+    // Query messages setelah cleared_at
     const [rows] = await pool.query(
       `SELECT m.id, m.sender_id, m.recipient_id, m.room_id,
               m.content, m.file_url, m.file_type,
@@ -584,9 +603,12 @@ app.get('/api/private/:me/:target', authMiddleware, async (req, res) => {
        WHERE ((m.sender_id = ? AND m.recipient_id = ?)
            OR (m.sender_id = ? AND m.recipient_id = ?))
          AND m.created_at > ?
-       ORDER BY m.id ASC`,
+       ORDER BY m.id ASC
+       LIMIT 1000`,
       [u1.id, u2.id, u2.id, u1.id, clearedAt]
     );
+
+    console.log(`✅ Found ${rows.length} messages after clear`);
 
     return res.json({ messages: rows });
   } catch (e) {
@@ -680,24 +702,29 @@ app.post("/api/upload/voice", authMiddleware, uploadVoice.single("file"), async 
 });
 
 // ==================== CLEAR CHAT ====================
-
 app.delete("/api/chat/clear/private/:contactId", authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const contactId = req.params.contactId;
 
   try {
+    console.log(`🧹 User ${userId} clearing PRIVATE chat dengan ${contactId}...`);
+    
     await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, ?, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+      `INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) 
+       VALUES (?, NULL, ?, NOW()) 
+       ON DUPLICATE KEY UPDATE cleared_at = NOW()`,
       [userId, contactId]
     );
 
+    console.log(`✅ Private chat with ${contactId} cleared for user ${userId}`);
+    
     return res.json({ 
       success: true,
       message: "Chat berhasil dibersihkan (hanya untuk Anda)" 
     });
   } catch (err) {
-    console.error('Clear chat error:', err);
-    return res.status(500).json({ error: "Database error" });
+    console.error('Clear private chat error:', err);
+    return res.status(500).json({ error: "Database error: " + err.message });
   }
 });
 
@@ -706,31 +733,568 @@ app.delete("/api/chat/clear/room/:roomId", authMiddleware, async (req, res) => {
   const roomId = req.params.roomId;
   
   try {
+    console.log(`🧹 User ${userId} clearing ROOM chat ${roomId}...`);
+    
     await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, ?, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+      `INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) 
+       VALUES (?, ?, NULL, NOW()) 
+       ON DUPLICATE KEY UPDATE cleared_at = NOW()`,
       [userId, roomId]
     );
 
+    console.log(`✅ Room chat ${roomId} cleared for user ${userId}`);
+    
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "DB error" });
+    console.error('Clear room chat error:', err);
+    res.status(500).json({ error: "Database error: " + err.message });
   }
 });
 
+// ==================== CLEAR GLOBAL CHAT (FIXED VERSION) ====================
 app.delete("/api/chat/clear/global", authMiddleware, async (req, res) => {
   const userId = req.user.id;
+  const username = req.user.username;
   
   try {
-    await pool.query(
-      "INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) VALUES (?, NULL, NULL, NOW()) ON DUPLICATE KEY UPDATE cleared_at = NOW()",
+    console.log(`🧹 User ${userId} (${username}) clearing GLOBAL chat...`);
+    
+    // **PERBAIKAN**: Gunakan CURRENT_TIMESTAMP() bukan NOW() untuk konsistensi
+    const [result] = await pool.query(
+      `INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) 
+       VALUES (?, NULL, NULL, CURRENT_TIMESTAMP()) 
+       ON DUPLICATE KEY UPDATE cleared_at = CURRENT_TIMESTAMP()`,
       [userId]
     );
-
-    res.json({ success: true });
+    
+    // **VERIFIKASI**: Ambil data yang baru saja diinsert
+    const [verify] = await pool.query(
+      `SELECT 
+        id,
+        cleared_at,
+        DATE_FORMAT(cleared_at, '%Y-%m-%d %H:%i:%s') as cleared_at_formatted
+       FROM user_chat_clears 
+       WHERE user_id = ? 
+         AND room_id IS NULL 
+         AND contact_id IS NULL
+       LIMIT 1`,
+      [userId]
+    );
+    
+    if (verify.length > 0) {
+      console.log(`✅ Global chat CLEARED for user ${userId}`);
+      console.log(`📅 Clear timestamp: ${verify[0].cleared_at} (${verify[0].cleared_at_formatted})`);
+      console.log(`📊 Affected rows: ${result.affectedRows}`);
+      
+      // **TEST**: Hitung berapa messages yang akan ditampilkan setelah clear
+      const clearedAt = verify[0].cleared_at;
+      const [[countAfterClear]] = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM messages 
+         WHERE room_id IS NULL 
+           AND recipient_id IS NULL
+           AND created_at > ?`,
+        [clearedAt]
+      );
+      
+      console.log(`🔍 Messages akan ditampilkan setelah clear: ${countAfterClear.count}`);
+    } else {
+      console.log(`❌ ERROR: Tidak bisa verifikasi clear untuk user ${userId}`);
+    }
+    
+    res.json({ 
+      success: true,
+      message: "Global chat berhasil dibersihkan",
+      timestamp: new Date().toISOString(),
+      debug: {
+        affectedRows: result.affectedRows,
+        verified: verify.length > 0 ? verify[0] : null
+      }
+    });
+    
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "DB error" });
+    console.error('❌ Clear global chat ERROR:', err);
+    console.error('Stack:', err.stack);
+    return res.status(500).json({ 
+      error: "Database error: " + err.message,
+      code: err.code 
+    });
+  }
+});
+
+// ==================== GLOBAL MESSAGES ENDPOINT ====================
+app.get('/api/messages/global', authMiddleware, async (req, res) => {
+  try {
+    console.log(`🌍 Loading global messages for user ${req.user.id} (${req.user.username})`);
+    
+    // Cek cleared_at untuk user ini
+    const [globalCleared] = await pool.query(
+      `SELECT cleared_at FROM user_chat_clears 
+       WHERE user_id = ? AND room_id IS NULL AND contact_id IS NULL
+       LIMIT 1`,
+      [req.user.id]
+    );
+    
+    let globalClearedAt = '1970-01-01';
+    if (globalCleared.length > 0 && globalCleared[0].cleared_at) {
+      globalClearedAt = new Date(globalCleared[0].cleared_at).toISOString();
+      console.log(`📅 User ${req.user.id} cleared global chat at: ${globalClearedAt}`);
+    }
+    
+    const [messages] = await pool.query(
+      `SELECT m.*, u.username 
+       FROM messages m
+       JOIN users u ON u.id = m.sender_id
+       WHERE m.room_id IS NULL AND m.recipient_id IS NULL
+         AND m.created_at > ?
+       ORDER BY m.id ASC
+       LIMIT 500`,
+      [globalClearedAt]
+    );
+    
+    console.log(`🌍 Found ${messages.length} global messages for user ${req.user.id}`);
+    
+    return res.json({ 
+      messages: messages,
+      clearedAt: globalClearedAt
+    });
+  } catch (e) {
+    console.error('Global messages error:', e);
+    return res.status(500).json({ error: 'Server error: ' + e.message });
+  }
+});
+
+// ==================== GLOBAL MESSAGES COUNT ====================
+app.get('/api/messages/global/count', authMiddleware, async (req, res) => {
+  try {
+    const [globalCleared] = await pool.query(
+      `SELECT cleared_at FROM user_chat_clears 
+       WHERE user_id = ? AND room_id IS NULL AND contact_id IS NULL
+       LIMIT 1`,
+      [req.user.id]
+    );
+    
+    let globalClearedAt = '1970-01-01';
+    if (globalCleared.length > 0 && globalCleared[0].cleared_at) {
+      globalClearedAt = new Date(globalCleared[0].cleared_at).toISOString();
+    }
+    
+    const [[countResult]] = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM messages 
+       WHERE room_id IS NULL AND recipient_id IS NULL
+         AND created_at > ?`,
+      [globalClearedAt]
+    );
+    
+    return res.json({ 
+      count: parseInt(countResult.count),
+      clearedAt: globalClearedAt
+    });
+  } catch (e) {
+    console.error('Global count error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== PRIVATE MESSAGES COUNT ====================
+app.get('/api/private/:me/:target/count', authMiddleware, async (req, res) => {
+  try {
+    const me = req.params.me;
+    const target = req.params.target;
+    const currentUserId = req.user.id;
+
+    // resolve ids
+    const [[u1]] = await pool.query('SELECT id FROM users WHERE username = ?', [me]);
+    const [[u2]] = await pool.query('SELECT id FROM users WHERE username = ?', [target]);
+
+    if (!u1 || !u2) return res.status(404).json({ error: 'User not found' });
+
+    // Cek cleared_at
+    const [[clearCheck]] = await pool.query(
+      'SELECT cleared_at FROM user_chat_clears WHERE user_id = ? AND contact_id = ?',
+      [currentUserId, u2.id]
+    );
+
+    let clearedAt = '1970-01-01';
+    if (clearCheck && clearCheck.cleared_at) {
+      clearedAt = new Date(clearCheck.cleared_at).toISOString();
+    }
+
+    const [[countResult]] = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM messages 
+       WHERE ((sender_id = ? AND recipient_id = ?)
+           OR (sender_id = ? AND recipient_id = ?))
+         AND created_at > ?`,
+      [u1.id, u2.id, u2.id, u1.id, clearedAt]
+    );
+
+    return res.json({ 
+      count: parseInt(countResult.count),
+      clearedAt: clearedAt
+    });
+  } catch (e) {
+    console.error('Private count error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== DEBUG CLEAR STATUS ====================
+app.get('/api/debug/clear-status/:userId?', authMiddleware, async (req, res) => {
+  try {
+    const debugUserId = req.params.userId || req.user.id;
+    
+    console.log(`🔍 Debug clear status untuk user ${debugUserId}`);
+    
+    // Ambil semua cleared chats user ini
+    const [clearedChats] = await pool.query(
+      'SELECT * FROM user_chat_clears WHERE user_id = ? ORDER BY cleared_at DESC',
+      [debugUserId]
+    );
+    
+    // Cek global messages tanpa filter
+    const [allGlobalMsgs] = await pool.query(
+      `SELECT COUNT(*) as total FROM messages 
+       WHERE room_id IS NULL AND recipient_id IS NULL`
+    );
+    
+    // Cek global messages dengan filter untuk user ini
+    const globalCleared = clearedChats.find(c => c.room_id === null && c.contact_id === null);
+    let globalClearedAt = '1970-01-01';
+    if (globalCleared) {
+      globalClearedAt = new Date(globalCleared.cleared_at).toISOString();
+    }
+    
+    const [filteredGlobalMsgs] = await pool.query(
+      `SELECT COUNT(*) as filtered FROM messages 
+       WHERE room_id IS NULL AND recipient_id IS NULL
+         AND created_at > ?`,
+      [globalClearedAt]
+    );
+    
+    return res.json({ 
+      userId: debugUserId,
+      clearedChats: clearedChats,
+      globalMessages: {
+        total: allGlobalMsgs[0].total,
+        filtered: filteredGlobalMsgs[0].filtered,
+        clearedAt: globalClearedAt,
+        willShow: parseInt(filteredGlobalMsgs[0].filtered) > 0 ? 'YES' : 'NO'
+      }
+    });
+  } catch (e) {
+    console.error('Debug error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== SIMPLE TEST ENDPOINT ====================
+// ==================== TEST CLEAR CHECK ENDPOINT ====================
+app.get('/api/test/clear-check', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    console.log(`🧪 Test clear check for user ${userId}`);
+    
+    // 1. Cek apakah ada record clear untuk user ini
+    const [clears] = await pool.query(
+      'SELECT * FROM user_chat_clears WHERE user_id = ? ORDER BY cleared_at DESC',
+      [userId]
+    );
+    
+    // 2. Hitung total global messages
+    const [[allCount]] = await pool.query(
+      'SELECT COUNT(*) as count FROM messages WHERE room_id IS NULL AND recipient_id IS NULL'
+    );
+    
+    // 3. Hitung messages setelah clear
+    let filteredCount = allCount.count;
+    let clearedAt = '1970-01-01';
+    
+    if (clears.length > 0) {
+      // Cari global clear (room_id IS NULL AND contact_id IS NULL)
+      const globalClear = clears.find(c => c.room_id === null && c.contact_id === null);
+      
+      if (globalClear && globalClear.cleared_at) {
+        clearedAt = new Date(globalClear.cleared_at).toISOString();
+        
+        const [[count]] = await pool.query(
+          'SELECT COUNT(*) as count FROM messages WHERE room_id IS NULL AND recipient_id IS NULL AND created_at > ?',
+          [clearedAt]
+        );
+        filteredCount = count.count;
+      }
+    }
+    
+    const result = {
+      userId: userId,
+      hasClearRecords: clears.length > 0,
+      clearRecords: clears.map(c => ({
+        ...c,
+        cleared_at: c.cleared_at ? new Date(c.cleared_at).toISOString() : null
+      })),
+      totalGlobalMessages: parseInt(allCount.count),
+      filteredGlobalMessages: parseInt(filteredCount),
+      clearedAt: clearedAt,
+      status: parseInt(filteredCount) === 0 ? 'CLEARED' : 'NOT_CLEARED',
+      message: parseInt(filteredCount) === 0 ? 
+        '✅ Clear bekerja! Tidak ada messages yang ditampilkan.' : 
+        `❌ Masih ada ${filteredCount} messages! Clear mungkin tidak bekerja.`
+    };
+    
+    console.log(`📊 Test result:`, {
+      total: result.totalGlobalMessages,
+      filtered: result.filteredGlobalMessages,
+      status: result.status
+    });
+    
+    return res.json(result);
+    
+  } catch (e) {
+    console.error('❌ Test error:', e);
+    return res.status(500).json({ 
+      error: 'Test failed: ' + e.message,
+      stack: e.stack 
+    });
+  }
+});
+
+// ==================== SIMPLE DEBUG ENDPOINT ====================
+app.get('/api/debug/clear-status', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    console.log(`🔍 Debug clear status for user ${userId}`);
+    
+    // 1. Cek clears
+    const [clears] = await pool.query(
+      'SELECT * FROM user_chat_clears WHERE user_id = ?',
+      [userId]
+    );
+    
+    // 2. Query langsung untuk lihat apa yang terjadi
+    let queryResult = [];
+    
+    if (clears.length > 0) {
+      const globalClear = clears.find(c => c.room_id === null && c.contact_id === null);
+      
+      if (globalClear && globalClear.cleared_at) {
+        const clearedAt = new Date(globalClear.cleared_at);
+        
+        // Debug query: tampilkan beberapa messages untuk lihat comparison
+        [queryResult] = await pool.query(
+          `SELECT 
+            m.id,
+            m.created_at as message_time,
+            ? as cleared_time,
+            m.created_at > ? as should_show
+           FROM messages m
+           WHERE m.room_id IS NULL 
+             AND m.recipient_id IS NULL
+           ORDER BY m.id DESC
+           LIMIT 5`,
+          [clearedAt, clearedAt]
+        );
+      }
+    }
+    
+    return res.json({
+      userId: userId,
+      clears: clears,
+      debugQuery: queryResult,
+      totalClears: clears.length
+    });
+    
+  } catch (e) {
+    console.error('Debug error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== DEBUG COMPARISON ENDPOINT ====================
+app.get('/api/debug/compare-clears', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    console.log(`🔍 Debug comparison for user ${userId}`);
+    
+    // 1. Ambil cleared_at dari database
+    const [clears] = await pool.query(
+      'SELECT * FROM user_chat_clears WHERE user_id = ? AND room_id IS NULL AND contact_id IS NULL',
+      [userId]
+    );
+    
+    let clearedAt = '1970-01-01';
+    if (clears.length > 0 && clears[0].cleared_at) {
+      clearedAt = new Date(clears[0].cleared_at).toISOString();
+    }
+    
+    console.log(`📅 User ${userId} cleared_at: ${clearedAt}`);
+    
+    // 2. QUERY PERTAMA (yang digunakan /api/test/clear-check)
+    const [[count1]] = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM messages 
+       WHERE room_id IS NULL 
+         AND recipient_id IS NULL
+         AND created_at > ?`,
+      [clearedAt]
+    );
+    
+    // 3. QUERY KEDUA (yang digunakan /api/init - PERHATIKAN PERBEDAAN!)
+    const [[count2]] = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM messages m
+       WHERE m.room_id IS NULL 
+         AND m.recipient_id IS NULL
+         AND m.created_at > ?`,
+      [clearedAt]
+    );
+    
+    // 4. Tampilkan beberapa sample messages untuk debug
+    const [sampleMessages] = await pool.query(
+      `SELECT 
+         m.id,
+         m.created_at,
+         DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s.%f') as created_at_full,
+         ? as cleared_at_param,
+         m.created_at > ? as is_after_clear
+       FROM messages m
+       WHERE m.room_id IS NULL 
+         AND m.recipient_id IS NULL
+       ORDER BY m.created_at DESC
+       LIMIT 10`,
+      [clearedAt, clearedAt]
+    );
+    
+    // 5. Cek messages yang MASUK dan TIDAK MASUK
+    const [messagesAfterClear] = await pool.query(
+      `SELECT m.id, m.created_at 
+       FROM messages m
+       WHERE m.room_id IS NULL 
+         AND m.recipient_id IS NULL
+         AND m.created_at > ?
+       ORDER BY m.created_at ASC
+       LIMIT 5`,
+      [clearedAt]
+    );
+    
+    const [messagesBeforeClear] = await pool.query(
+      `SELECT m.id, m.created_at 
+       FROM messages m
+       WHERE m.room_id IS NULL 
+         AND m.recipient_id IS NULL
+         AND m.created_at <= ?
+       ORDER BY m.created_at DESC
+       LIMIT 5`,
+      [clearedAt]
+    );
+    
+    const result = {
+      userId: userId,
+      clearedAt: clearedAt,
+      query1Count: parseInt(count1.count),
+      query2Count: parseInt(count2.count),
+      sampleMessages: sampleMessages.map(m => ({
+        id: m.id,
+        created_at: m.created_at,
+        created_at_full: m.created_at_full,
+        cleared_at_param: m.cleared_at_param,
+        is_after_clear: Boolean(m.is_after_clear),
+        comparison: m.created_at > new Date(m.cleared_at_param) ? 'AFTER' : 'BEFORE'
+      })),
+      messagesAfterClear: messagesAfterClear,
+      messagesBeforeClear: messagesBeforeClear,
+      totalMessages: parseInt(count1.count) + messagesBeforeClear.length
+    };
+    
+    console.log(`📊 Comparison results:`);
+    console.log(`- Query1 count: ${result.query1Count}`);
+    console.log(`- Query2 count: ${result.query2Count}`);
+    console.log(`- Sample messages comparison:`, result.sampleMessages);
+    
+    return res.json(result);
+    
+  } catch (e) {
+    console.error('❌ Comparison error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== MANUAL FIX CLEAR ====================
+app.post('/api/debug/fix-clear', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { action } = req.body; // 'reset' atau 'force-clear'
+    
+    console.log(`🔧 Manual fix for user ${userId}, action: ${action}`);
+    
+    if (action === 'reset') {
+      // Hapus semua clear records untuk user ini
+      await pool.query('DELETE FROM user_chat_clears WHERE user_id = ?', [userId]);
+      
+      console.log(`✅ Reset all clears for user ${userId}`);
+      
+      return res.json({
+        success: true,
+        message: 'All clear records deleted. You will see ALL messages again.'
+      });
+      
+    } else if (action === 'force-clear') {
+      // Force clear dengan timestamp SANGAT BARU
+      const forceTimestamp = new Date().toISOString();
+      
+      await pool.query(
+        `INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) 
+         VALUES (?, NULL, NULL, ?) 
+         ON DUPLICATE KEY UPDATE cleared_at = ?`,
+        [userId, forceTimestamp, forceTimestamp]
+      );
+      
+      console.log(`✅ Force cleared for user ${userId} at ${forceTimestamp}`);
+      
+      // Verifikasi
+      const [[count]] = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM messages 
+         WHERE room_id IS NULL 
+           AND recipient_id IS NULL
+           AND created_at > ?`,
+        [forceTimestamp]
+      );
+      
+      return res.json({
+        success: true,
+        message: `Force clear completed. ${count.count} messages will show.`,
+        clearedAt: forceTimestamp,
+        messagesAfterClear: parseInt(count.count)
+      });
+      
+    } else if (action === 'show-all') {
+      // Set cleared_at ke waktu SANGAT LAMA
+      const ancientTime = '1970-01-01 00:00:00';
+      
+      await pool.query(
+        `INSERT INTO user_chat_clears (user_id, room_id, contact_id, cleared_at) 
+         VALUES (?, NULL, NULL, ?) 
+         ON DUPLICATE KEY UPDATE cleared_at = ?`,
+        [userId, ancientTime, ancientTime]
+      );
+      
+      console.log(`✅ Set cleared_at to ancient time for user ${userId}`);
+      
+      return res.json({
+        success: true,
+        message: 'All messages will now show (cleared_at set to 1970).'
+      });
+    }
+    
+    return res.status(400).json({ error: 'Invalid action' });
+    
+  } catch (e) {
+    console.error('Fix error:', e);
+    return res.status(500).json({ error: e.message });
   }
 });
 
@@ -930,34 +1494,88 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
-        // Private message
         if (data.type === "private_message") {
           const recipientId = data.recipientId;
           const content = data.content || "";
           if (!recipientId || !content) return;
 
-          await pool.query(
+          const [result] = await pool.query(
             'INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)',
             [ws.userId, recipientId, content]
           );
 
+          const messageId = result.insertId;
+          
+          // Ambil username untuk response
+          const [[user]] = await pool.query('SELECT username FROM users WHERE id = ?', [ws.userId]);
+          const username = user.username;
+
+          // Broadcast ke sender dan recipient
           wss.clients.forEach(client => {
             if (client.readyState === 1) {
               if (client.userId === ws.userId || client.userId === Number(recipientId)) {
                 client.send(JSON.stringify({
                   type: "private_message",
                   message: {
+                    id: messageId,
                     sender_id: ws.userId,
                     recipient_id: recipientId,
                     content,
-                    username: ws.username,
-                    room_id: null,
+                    username: username,
                     created_at: new Date().toISOString()
                   }
                 }));
               }
             }
           });
+          return;
+        }
+
+        // **PERBAIKAN KRITIS**: Handler untuk file upload notifications
+        if (data.type === "file_uploaded") {
+          console.log(`📤 File uploaded notification from ${ws.userId}:`, data);
+          
+          // Ambil message dari database berdasarkan fileUrl
+          const [messages] = await pool.query(
+            'SELECT m.*, u.username FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.file_url = ? ORDER BY m.id DESC LIMIT 1',
+            [data.fileUrl]
+          );
+          
+          if (messages.length > 0) {
+            const message = messages[0];
+            
+            // Broadcast berdasarkan tipe chat
+            wss.clients.forEach(client => {
+              if (client.readyState === 1) {
+                // Private chat
+                if (message.recipient_id) {
+                  if (client.userId === message.sender_id || client.userId === message.recipient_id) {
+                    client.send(JSON.stringify({
+                      type: "file_message",
+                      message: message
+                    }));
+                  }
+                }
+                // Room chat
+                else if (message.room_id) {
+                  // Kirim ke semua di room tersebut
+                  client.send(JSON.stringify({
+                    type: "file_message",
+                    message: message
+                  }));
+                }
+                // Global chat
+                else {
+                  client.send(JSON.stringify({
+                    type: "file_message",
+                    message: message
+                  }));
+                }
+              }
+            });
+            
+            console.log(`✅ Broadcasted file message ${message.id} to relevant clients`);
+          }
           return;
         }
 
@@ -1001,6 +1619,48 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
+        if (data.type === "file_upload_complete") {
+        // Kirim ke semua client yang relevan
+        wss.clients.forEach(client => {
+          if (client.readyState === 1) {
+            // Kirim ke penerima private chat
+            if (data.context.type === "private") {
+              if (client.userId === Number(data.context.userId) || 
+                  client.userId === Number(data.senderId)) {
+                client.send(JSON.stringify({
+                  type: "file_upload_complete",
+                  fileUrl: data.fileUrl,
+                  fileType: data.fileType,
+                  context: data.context,
+                  senderId: data.senderId,
+                  senderUsername: data.senderUsername,
+                  timestamp: data.timestamp
+                }));
+              }
+            }
+            // Kirim ke semua di room
+            else if (data.context.type === "room") {
+              if (state.currentContext && state.currentContext.type === "room" && 
+                  Number(state.currentContext.roomId) === Number(data.context.roomId)) {
+                client.send(JSON.stringify(data));
+              }
+            }
+            // Kirim ke semua untuk global
+            else if (data.context.type === "global") {
+              client.send(JSON.stringify(data));
+            }
+          }
+        });
+        return;
+      }
+
+      // **PERBAIKAN**: Handler untuk subscribe all
+      if (data.type === "subscribe_all") {
+        console.log(`👤 User ${ws.userId} subscribed to all notifications`);
+        // Tidak perlu response, hanya log
+        return;
+      }
+
         // ... (other call handlers remain the same)
 
       } catch (err) {
@@ -1027,6 +1687,10 @@ wss.on('connection', async (ws, req) => {
     try { ws.close(); } catch (e) {}
   }
 });
+
+// ==================== DEBUG ENDPOINT ====================
+// ==================== DEBUG ENDPOINTS ====================
+
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {

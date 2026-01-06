@@ -16,163 +16,8 @@ import {
 // Hapus fitur clearedContexts yang kompleks
 state.clearedContexts = {};
 
-// Override console.log untuk timestamp
-const origLog = console.log;
-console.log = function(...args) {
-  const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-  origLog.apply(console, [`[${timestamp}]`, ...args]);
-  
-  const debugDiv = document.getElementById('debugConsole');
-  if (debugDiv) {
-    debugDiv.innerHTML += `<div>[${timestamp}] ${args.join(' ')}</div>`;
-    debugDiv.scrollTop = debugDiv.scrollHeight;
-  }
-};
-
 // Deklarasi fungsi yang akan digunakan
 let timerInterval;
-
-// System untuk polling file messages
-state.messagePollers = {};
-
-// Fungsi untuk start polling setelah upload
-function startMessagePolling(context, fileUrl, timeout = 10000) {
-  const pollerId = `poller_${Date.now()}`;
-  let attempts = 0;
-  const maxAttempts = timeout / 1000; // 10 detik
-  
-  console.log(`🔄 Starting message polling for: ${fileUrl}`);
-  
-  const poller = setInterval(async () => {
-    attempts++;
-    
-    if (attempts > maxAttempts) {
-      console.log(`⏰ Polling timeout for: ${fileUrl}`);
-      clearInterval(poller);
-      delete state.messagePollers[pollerId];
-      return;
-    }
-    
-    try {
-      const message = await fetchMessageByFileUrl(context, fileUrl);
-      
-      if (message) {
-        console.log(`✅ Found uploaded message via polling:`, message);
-        
-        // Hapus temporary message
-        const tempElements = document.querySelectorAll('[id^="message-temp_"]');
-        tempElements.forEach(el => el.remove());
-        
-        // Render real message
-        renderMessage(message);
-        
-        // Stop polling
-        clearInterval(poller);
-        delete state.messagePollers[pollerId];
-      }
-    } catch (error) {
-      console.log(`Polling attempt ${attempts} failed:`, error.message);
-    }
-  }, 1000);
-  
-  state.messagePollers[pollerId] = poller;
-  
-  // Auto cleanup setelah timeout
-  setTimeout(() => {
-    if (state.messagePollers[pollerId]) {
-      clearInterval(state.messagePollers[pollerId]);
-      delete state.messagePollers[pollerId];
-      console.log(`🧹 Cleaned up poller ${pollerId}`);
-    }
-  }, timeout + 5000);
-}
-
-// Fungsi untuk mencari message berdasarkan fileUrl
-async function fetchMessageByFileUrl(context, fileUrl) {
-  try {
-    let endpoint = '';
-    
-    if (context.type === 'private') {
-      // Untuk private chat, coba endpoint conversations
-      endpoint = `${API_ROOT}/private/conversation/${myId}/${context.userId}?fileUrl=${encodeURIComponent(fileUrl)}`;
-    } else if (context.type === 'room') {
-      endpoint = `${API_ROOT}/rooms/${context.roomId}/messages?fileUrl=${encodeURIComponent(fileUrl)}`;
-    } else {
-      endpoint = `${API_ROOT}/messages/global?fileUrl=${encodeURIComponent(fileUrl)}`;
-    }
-    
-    const res = await fetch(endpoint, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      return data.message || data.messages?.[0];
-    }
-  } catch (error) {
-    console.error('Error fetching message by fileUrl:', error);
-  }
-  
-  return null;
-}
-
-// Fungsi untuk cek semua messages baru
-async function checkForNewMessages(context) {
-  try {
-    let endpoint = '';
-    let lastMessageId = getLastMessageId();
-    
-    if (context.type === 'private') {
-      endpoint = `${API_ROOT}/private/${myId}/${context.userId}/new?since=${lastMessageId || ''}`;
-    } else if (context.type === 'room') {
-      endpoint = `${API_ROOT}/rooms/${context.roomId}/messages/new?since=${lastMessageId || ''}`;
-    } else {
-      endpoint = `${API_ROOT}/messages/global/new?since=${lastMessageId || ''}`;
-    }
-    
-    const res = await fetch(endpoint, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      const newMessages = data.messages || [];
-      
-      newMessages.forEach(msg => {
-        // Cek apakah message sudah ada di UI
-        const existing = document.getElementById(`message-${msg.id}`);
-        if (!existing) {
-          renderMessage(msg);
-        }
-      });
-      
-      // Update last message ID
-      if (newMessages.length > 0) {
-        updateLastMessageId(newMessages[newMessages.length - 1].id);
-      }
-    }
-  } catch (error) {
-    console.error('Error checking new messages:', error);
-  }
-}
-
-// Helper functions
-function getLastMessageId() {
-  const messages = document.querySelectorAll('.message');
-  if (messages.length === 0) return null;
-  
-  const lastMessage = messages[messages.length - 1];
-  const id = lastMessage.id.replace('message-', '');
-  return id.startsWith('temp_') ? null : id;
-}
-
-function updateLastMessageId(id) {
-  // Simpan di localStorage atau state
-  if (state.currentContext) {
-    const key = `lastMsg_${state.currentContext.type}_${state.currentContext.userId || state.currentContext.roomId || 'global'}`;
-    localStorage.setItem(key, id);
-  }
-}
 
 // ==================== CONTACTS FUNCTIONS ====================
 export async function loadContacts() {
@@ -199,8 +44,6 @@ export async function loadContacts() {
 
 export async function loadPendingRequests() {
   try {
-    console.log('🔄 Memuat pending requests...');
-    
     const res = await fetch(`${API_ROOT}/contacts/pending`, {
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -211,7 +54,6 @@ export async function loadPendingRequests() {
     if (!res.ok) throw new Error('Gagal memuat requests');
     
     const data = await res.json();
-    console.log('📨 Data dari API:', data);
     
     let requests = [];
     
@@ -225,10 +67,8 @@ export async function loadPendingRequests() {
     state.pendingRequests = requests;
     renderPendingRequests(requests);
     
-    // Update badge
     updatePendingBadge(requests.length);
     
-    console.log(`✅ Selesai: ${requests.length} pending requests dimuat`);
     return requests;
   } catch (error) {
     console.error('Error loading requests:', error);
@@ -397,7 +237,6 @@ async function loadInit() {
       updatePendingBadge(data.pendingCount);
     }
 
-    // Load messages based on current context
     loadMessagesForCurrentContext();
     
   } catch (error) {
@@ -406,18 +245,20 @@ async function loadInit() {
   }
 }
 
-// Fungsi untuk memuat pesan berdasarkan konteks saat ini - DIKOREKSI
 async function loadMessagesForCurrentContext() {
-  if (!state.currentContext) return;
+  if (!state.currentContext) {
+    return;
+  }
   
   const ctx = state.currentContext;
-  clearMessages();
   
-  try {
-    if (ctx.type === "global") {
-      updateChatTitle("Global", "Public global chat");
-      
-      // Load dari init - server sudah filter berdasarkan user_chat_clears
+  const clearKey = `CLEAR_TIME_${ctx.type}_${ctx.userId || ctx.roomId || 'global'}`;
+  const clearTimeStr = localStorage.getItem(clearKey);
+  
+  if (clearTimeStr) {
+    const clearTime = new Date(clearTimeStr);
+    
+    try {
       const res = await fetch(API_ROOT + "/init", {
         headers: { Authorization: "Bearer " + token },
       });
@@ -425,12 +266,117 @@ async function loadMessagesForCurrentContext() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       
       const data = await res.json();
+      clearMessages();
+      const infoMsg = document.createElement("div");
+      
+      if (elements.messagesEl) {
+        elements.messagesEl.appendChild(infoMsg);
+      }
+      
+      if (ctx.type === "global") {
+        updateChatTitle("Global", "Public global chat");
+        
+        const globalMessages = (data.messages || []).filter(m => 
+          !m.room_id && !m.recipient_id
+        );
+        
+        let newMessagesCount = 0;
+        globalMessages.forEach(m => {
+          const msgTime = new Date(m.created_at);
+          if (msgTime > clearTime) {
+            m.username = `Global — ${m.username || m.sender_username}`;
+            m.is_from_load = true;
+            renderMessage(m);
+            newMessagesCount++;
+          }
+        });
+        
+        if (newMessagesCount === 0) {
+          const emptyMsg = document.createElement("div");
+          if (elements.messagesEl) elements.messagesEl.appendChild(emptyMsg);
+        }
+        
+      } else if (ctx.type === "room") {
+        updateChatTitle(ctx.name, "Room chat");
+        
+        const roomRes = await fetch(
+          `${API_ROOT}/rooms/${ctx.roomId}/messages`,
+          { headers: { Authorization: "Bearer " + token } }
+        );
+        
+        if (roomRes.ok) {
+          const roomData = await roomRes.json();
+          
+          (roomData.messages || []).forEach(m => {
+            const msgTime = new Date(m.created_at);
+            if (msgTime > clearTime) {
+              m.is_from_load = true;
+              renderMessage(m);
+            }
+          });
+        }
+        
+      } else if (ctx.type === "private") {
+        const cleanUsername = ctx.username ? ctx.username.trim() : '';
+        updateChatTitle("Private — " + cleanUsername, "Direct message");
+        
+        const endpoint = `${API_ROOT}/private/${encodeURIComponent(myUsername)}/${encodeURIComponent(cleanUsername)}`;
+        const privateRes = await fetch(endpoint, { 
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        });
+        
+        if (privateRes.ok) {
+          const privateData = await privateRes.json();
+          
+          (privateData.messages || []).forEach(m => {
+            const msgTime = new Date(m.created_at);
+            if (msgTime > clearTime) {
+              if (!m.username) {
+                m.username = m.sender_id === myId ? myUsername : cleanUsername;
+              }
+              m.is_from_load = true;
+              renderMessage(m);
+            }
+          });
+        }
+      }
+      
+      setTimeout(() => {
+        if (elements.messagesEl) {
+          elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+        }
+      }, 100);
+      
+      updateClearBtnVisibility();
+      return;
+      
+    } catch (error) {
+      console.error('Error loading filtered messages:', error);
+    }
+  }
+  
+  try {
+    const res = await fetch(API_ROOT + "/init", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    
+    const data = await res.json();
+    
+    if (ctx.type === "global") {
+      updateChatTitle("Global", "Public global chat");
+      
       const globalMessages = (data.messages || []).filter(m => 
         !m.room_id && !m.recipient_id
       );
       
       globalMessages.forEach(m => {
         m.username = `Global — ${m.username || m.sender_username}`;
+        m.is_from_load = true;
         renderMessage(m);
       });
       
@@ -441,17 +387,20 @@ async function loadMessagesForCurrentContext() {
     } else if (ctx.type === "room") {
       updateChatTitle(ctx.name, "Room chat");
       
-      // Endpoint room sudah filter berdasarkan user_chat_clears
-      const res = await fetch(
+      const roomRes = await fetch(
         `${API_ROOT}/rooms/${ctx.roomId}/messages`,
         { headers: { Authorization: "Bearer " + token } }
       );
       
-      if (res.ok) {
-        const data = await res.json();
-        (data.messages || []).forEach(renderMessage);
+      if (roomRes.ok) {
+        const roomData = await roomRes.json();
         
-        if (data.messages?.length === 0) {
+        (roomData.messages || []).forEach(m => {
+          m.is_from_load = true;
+          renderMessage(m);
+        });
+        
+        if (roomData.messages?.length === 0) {
           showEmptyMessage("room", "No messages in this room yet");
         }
       }
@@ -460,29 +409,37 @@ async function loadMessagesForCurrentContext() {
       const cleanUsername = ctx.username ? ctx.username.trim() : '';
       updateChatTitle("Private — " + cleanUsername, "Direct message");
       
-      // Endpoint private sudah filter berdasarkan user_chat_clears
       const endpoint = `${API_ROOT}/private/${encodeURIComponent(myUsername)}/${encodeURIComponent(cleanUsername)}`;
-      const res = await fetch(endpoint, { 
+      
+      const privateRes = await fetch(endpoint, { 
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         } 
       });
       
-      if (res.ok) {
-        const data = await res.json();
-        (data.messages || []).forEach(m => {
+      if (privateRes.ok) {
+        const privateData = await privateRes.json();
+        
+        (privateData.messages || []).forEach(m => {
           if (!m.username) {
             m.username = m.sender_id === myId ? myUsername : cleanUsername;
           }
+          m.is_from_load = true;
           renderMessage(m);
         });
         
-        if (data.messages?.length === 0) {
+        if (privateData.messages?.length === 0) {
           showEmptyMessage("private", `No messages yet with ${cleanUsername}`);
         }
       }
     }
+    
+    setTimeout(() => {
+      if (elements.messagesEl) {
+        elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+      }
+    }, 100);
     
   } catch (error) {
     console.error('Error loading messages:', error);
@@ -492,7 +449,12 @@ async function loadMessagesForCurrentContext() {
   updateClearBtnVisibility();
 }
 
-// Tambahkan fungsi helper di chat-main.js
+export function scrollToBottom() {
+  if (elements.messagesEl) {
+    elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+  }
+}
+
 function showEmptyMessage(type, text) {
   const emptyMsg = document.createElement("div");
   emptyMsg.className = "system-message info text-center py-8 text-slate-400 text-sm";
@@ -522,31 +484,8 @@ function showErrorMessage(text) {
 }
 
 async function setContext(ctx) {
-  console.log('🔄 Setting context:', ctx);
-  
   state.currentContext = ctx;
   await loadMessagesForCurrentContext();
-}
-
-function handlePrivateChatError(error, username) {
-  clearMessages();
-  
-  const errorMsg = document.createElement("div");
-  errorMsg.className = "system-message error p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 mb-3";
-  
-  if (error.message.includes('404')) {
-    errorMsg.innerHTML = `
-      <div class="font-medium">Cannot Start Chat</div>
-      <div class="text-sm mt-1">Unable to load conversation with ${username}.</div>
-    `;
-  } else {
-    errorMsg.innerHTML = `
-      <div class="font-medium">Error Loading Messages</div>
-      <div class="text-sm mt-1">${error.message}</div>
-    `;
-  }
-  
-  if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
 }
 
 async function sendMessage() {
@@ -560,13 +499,10 @@ async function sendMessage() {
     return;
   }
 
-  // Simpan text sebelum clear
   const messageContent = txt;
   
-  // Clear input dulu
   elements.msgInputEl.value = "";
   
-  // Kirim via WebSocket berdasarkan konteks
   if (state.currentContext.type === "global") {
     state.ws.send(JSON.stringify({ 
       type: "global_message", 
@@ -586,16 +522,9 @@ async function sendMessage() {
       content: messageContent
     }));
   }
-  
-  // TIDAK LAGI PAKAI OPTIMISTIC UPDATE
-  // Biarkan server yang mengirim kembali via WebSocket
-  
-  console.log('📤 Message sent via WebSocket');
 }
 
 async function uploadFile(file) {
-  console.log('📸 Uploading file:', file.name, file.type);
-  
   const formData = new FormData();
   formData.append("file", file);
 
@@ -615,23 +544,12 @@ async function uploadFile(file) {
 
   const context = state.currentContext;
   
-  // Tambahkan data konteks
-  formData.append("sender_id", myId);
-  formData.append("sender_username", myUsername);
-  formData.append("content", fileType === "image" ? "Sent an image" : "Sent a voice message");
-  
   if (context.type === "room") {
     formData.append("roomId", context.roomId);
-    formData.append("type", "room");
   } else if (context.type === "private") {
     formData.append("recipientId", context.userId);
-    formData.append("recipientUsername", context.username);
-    formData.append("type", "private");
-  } else {
-    formData.append("type", "global");
   }
 
-  // Temporary preview
   const tempObjectUrl = URL.createObjectURL(file);
   const tempMsg = {
     id: `temp_${fileType}_${Date.now()}`,
@@ -647,7 +565,6 @@ async function uploadFile(file) {
   renderMessage(tempMsg);
 
   try {
-    // Upload file
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: "Bearer " + token },
@@ -660,32 +577,33 @@ async function uploadFile(file) {
       throw new Error(data.error || 'Upload failed');
     }
     
-    console.log(`✅ ${fileType} upload successful:`, data);
-    
-    // Revoke temporary URL
     URL.revokeObjectURL(tempObjectUrl);
     
-    // **SOLUSI PENTING**: Start polling untuk message baru
-    if (data.fileUrl) {
-      startMessagePolling(context, data.fileUrl);
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      const wsMessage = {
+        type: "file_uploaded",
+        fileUrl: data.fileUrl,
+        fileType: fileType,
+        context: context,
+        senderId: myId,
+        senderUsername: myUsername
+      };
+      
+      state.ws.send(JSON.stringify(wsMessage));
     }
     
-    // **Juga kirim manual polling untuk penerima**
-    if (context.type === "private" && state.ws && state.ws.readyState === WebSocket.OPEN) {
-      // Kirim notification ke penerima untuk check messages baru
-      state.ws.send(JSON.stringify({
-        type: "check_new_messages",
-        recipientId: context.userId,
-        fileUrl: data.fileUrl,
-        timestamp: Date.now()
-      }));
-    }
+    setTimeout(() => {
+      const tempElement = document.getElementById(`message-temp_${fileType}_${Date.now()}`);
+      if (tempElement) {
+        tempElement.remove();
+      }
+    }, 2000);
     
   } catch (error) {
     console.error(`❌ ${fileType} upload error:`, error);
     
-    // Update temporary message menjadi error
-    const errorElement = document.getElementById(`message-temp_${fileType}_${Date.now()}`);
+    const tempId = `temp_${fileType}_${Date.now()}`;
+    const errorElement = document.getElementById(`message-${tempId}`);
     if (errorElement) {
       errorElement.innerHTML = `
         <div class="text-red-600 italic">
@@ -695,6 +613,7 @@ async function uploadFile(file) {
     }
   }
 }
+
 async function createRoom() {
   if (!elements.newRoomNameEl) return;
   
@@ -725,8 +644,6 @@ function logout() {
 // ==================== RECORDING FUNCTIONS ====================
 async function startRecording() {
   try {
-    console.log('🎤 Starting recording...');
-    
     const stream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         echoCancellation: true,
@@ -797,8 +714,6 @@ function stopRecording(cancel = false) {
 }
 
 async function uploadVoiceBlob(blob) {
-  console.log('🎤 Uploading voice blob...');
-  
   const context = state.currentContext;
   const formData = new FormData();
   formData.append("file", blob, "voice.webm");
@@ -806,20 +721,27 @@ async function uploadVoiceBlob(blob) {
   formData.append("sender_username", myUsername);
   formData.append("content", "Voice message");
 
-  // **PERBAIKAN**: Tambahkan semua data untuk broadcasting
   if (context.type === "room") {
     formData.append("roomId", context.roomId);
-    formData.append("type", "room");
   } else if (context.type === "private") {
     formData.append("recipientId", context.userId);
-    formData.append("recipientUsername", context.username);
-    formData.append("type", "private");
-  } else {
-    formData.append("type", "global");
   }
 
+  const tempObjectUrl = URL.createObjectURL(blob);
+  const tempMsg = {
+    id: `temp_voice_${Date.now()}`,
+    sender_id: myId,
+    username: myUsername,
+    file_type: "voice",
+    file_url: tempObjectUrl,
+    content: "Sending voice message...",
+    created_at: new Date().toISOString(),
+    is_temp: true
+  };
+  
+  renderMessage(tempMsg);
+
   try {
-    // Upload voice
     const res = await fetch("/api/upload/voice", {
       method: "POST",
       headers: { Authorization: "Bearer " + token },
@@ -832,35 +754,13 @@ async function uploadVoiceBlob(blob) {
       throw new Error(data.error || 'Upload failed');
     }
     
-    console.log('✅ Voice upload successful:', data);
+    URL.revokeObjectURL(tempObjectUrl);
     
-    // **PERBAIKAN**: Tampilkan temporary message
-    const tempMsg = {
-      id: `temp_voice_${Date.now()}`,
-      sender_id: myId,
-      username: myUsername,
-      file_type: "voice",
-      file_url: URL.createObjectURL(blob),
-      content: "Voice message sent",
-      created_at: new Date().toISOString(),
-      is_temp: true
-    };
-    
-    renderMessage(tempMsg);
-    
-    // Hapus temporary message setelah beberapa saat
-    setTimeout(() => {
-      const tempElement = document.getElementById(`message-temp_voice_${Date.now()}`);
-      if (tempElement) {
-        tempElement.remove();
-      }
-    }, 2000);
-    
-    // **ATAU**: Kirim WebSocket notification
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       const wsMessage = {
-        type: "voice_uploaded",
+        type: "file_uploaded",
         fileUrl: data.fileUrl,
+        fileType: "voice",
         context: context,
         senderId: myId,
         senderUsername: myUsername
@@ -869,134 +769,131 @@ async function uploadVoiceBlob(blob) {
       state.ws.send(JSON.stringify(wsMessage));
     }
     
+    setTimeout(() => {
+      const tempElement = document.getElementById(`message-temp_voice_${Date.now()}`);
+      if (tempElement) {
+        tempElement.remove();
+      }
+    }, 2000);
+    
   } catch (error) {
     console.error("❌ Voice upload error:", error);
-    alert("Failed to send voice message: " + error.message);
+    
+    const tempId = `temp_voice_${Date.now()}`;
+    const errorElement = document.getElementById(`message-${tempId}`);
+    if (errorElement) {
+      errorElement.innerHTML = `
+        <div class="text-red-600 italic">
+          ❌ Failed to send voice: ${error.message}
+        </div>
+      `;
+    }
   }
 }
 
 function finishRecording() {
-  console.log('🔄 Finishing recording...');
   stopRecording(false);
 }
 
-// ==================== CLEAR CHAT (SIMPLIFIED) ====================
+// ==================== CLEAR CHAT (PERMANENT) ====================
 async function clearChat() {
-  if (!state.currentContext.type) return;
+  if (!state.currentContext || !state.currentContext.type) {
+    alert('Pilih chat terlebih dahulu!');
+    return;
+  }
 
-  // PERBAIKAN: Konfirmasi yang benar
+  const context = state.currentContext;
+  const contextName = 
+    context.type === 'global' ? 'Global' :
+    context.type === 'room' ? context.name || 'Room' :
+    context.type === 'private' ? context.username || 'Private' : 'Chat';
+
   const confirmed = confirm(
-    "Bersihkan chat?\n\n" +
-    "Chat akan dihapus HANYA untuk Anda.\n" +
-    "Pesan akan HILANG dari tampilan Anda dan TIDAK AKAN MUNCUL kembali setelah refresh.\n" +
-    "Pesan masih akan terlihat oleh pengguna lain.\n\n" +
-    "Lanjutkan?"
+    "Yakin ingin membersihkan chat?"
   );
   
   if (!confirmed) return;
 
-  const context = state.currentContext;
-  let url = "";
-  let contextName = "";
+  let endpoint = "";
   
   if (context.type === "global") {
-    url = `/api/chat/clear/global`;
-    contextName = "Global";
-  } else if (context.type === "room") {
-    url = `/api/chat/clear/room/${context.roomId}`;
-    contextName = context.name;
-  } else if (context.type === "private") {
-    url = `/api/chat/clear/private/${context.userId}`;
-    contextName = context.username;
+    endpoint = "/api/chat/clear/global";
+  } else if (context.type === "room" && context.roomId) {
+    endpoint = `/api/chat/clear/room/${context.roomId}`;
+  } else if (context.type === "private" && context.userId) {
+    endpoint = `/api/chat/clear/private/${context.userId}`;
+  } else {
+    alert('Tidak bisa membersihkan chat: konteks tidak valid');
+    return;
   }
 
-  console.log('🧹 Clearing chat:', contextName, 'URL:', url);
-
   try {
-    // Tampilkan loading
     clearMessages();
     const loadingMsg = document.createElement("div");
     loadingMsg.className = "system-message loading text-center p-4 bg-blue-50 border border-blue-200 rounded-xl mb-3";
     loadingMsg.innerHTML = `
-      <div class="text-blue-700 font-medium mb-1">⏳ Membersihkan chat ${contextName}...</div>
-      <div class="text-sm text-blue-600">Menghapus chat hanya untuk Anda</div>
+      <div class="text-blue-700 font-medium mb-1">⏳ Membersihkan pesan lama...</div>
+      <div class="text-sm text-blue-600">Pesan baru tetap bisa dikirim</div>
     `;
     if (elements.messagesEl) elements.messagesEl.appendChild(loadingMsg);
 
-    // Kirim request ke server
-    const res = await fetch(url, {
+    const res = await fetch(endpoint, {
       method: "DELETE",
       headers: {
         Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-      },
+      }
     });
 
     const result = await res.json();
-    console.log("Clear chat result:", result);
 
-    // Hapus loading
     if (loadingMsg.parentNode) {
       loadingMsg.parentNode.removeChild(loadingMsg);
     }
 
     if (result.success) {
-      // PERBAIKAN: Tampilkan pesan yang BENAR
-      const successMsg = document.createElement("div");
-      successMsg.className = "system-message success text-center p-4 bg-green-50 border border-green-200 rounded-xl mb-3";
-      successMsg.innerHTML = `
-        <div class="text-green-700 font-medium mb-1">✅ Chat ${contextName} Telah Dihapus</div>
-        <div class="text-sm text-green-600">
-          Chat telah dihapus dari tampilan Anda
-        </div>
-        <div class="text-xs text-green-500 mt-2">
-          Chat TIDAK AKAN muncul kembali setelah refresh<br>
-          (Hanya untuk akun Anda, pengguna lain masih bisa melihat)
-        </div>
-      `;
-      if (elements.messagesEl) elements.messagesEl.appendChild(successMsg);
+      const clearTime = new Date().toISOString();
+      const clearKey = `CLEAR_TIME_${context.type}_${context.userId || context.roomId || 'global'}`;
       
-      console.log('✅ Chat cleared successfully');
+      localStorage.setItem(clearKey, clearTime);
+      localStorage.setItem('last_clear_timestamp', clearTime);
       
-      // Hapus semua message dari UI
-      const allMessages = document.querySelectorAll('.message:not(.system-message)');
-      allMessages.forEach(msg => msg.remove());
+      clearMessages();
+      
+      const infoMsg = document.createElement("div");
+      
+      if (elements.messagesEl) {
+        elements.messagesEl.appendChild(infoMsg);
+      }
       
     } else {
-      const errorMsg = document.createElement("div");
-      errorMsg.className = "system-message error text-center p-4 bg-red-50 border border-red-200 rounded-xl mb-3";
-      errorMsg.innerHTML = `
-        <div class="text-red-700 font-medium mb-1">❌ Gagal Membersihkan Chat</div>
-        <div class="text-sm text-red-600">${result.error || "Unknown error"}</div>
-      `;
-      if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
-      
-      // Reload messages
-      setTimeout(() => loadMessagesForCurrentContext(), 1000);
+      throw new Error(result.error || "Gagal membersihkan chat");
     }
   } catch (err) {
-    console.error("Clear chat error:", err);
+    console.error("❌ Clear chat error:", err);
+    
+    const existingLoading = document.querySelector('.system-message.loading');
+    if (existingLoading) existingLoading.remove();
     
     const errorMsg = document.createElement("div");
     errorMsg.className = "system-message error text-center p-4 bg-red-50 border border-red-200 rounded-xl mb-3";
     errorMsg.innerHTML = `
-      <div class="text-red-700 font-medium mb-1">❌ Error</div>
-      <div class="text-sm text-red-600">Terjadi error saat membersihkan chat</div>
+      <div class="text-red-700 font-medium mb-1">❌ GAGAL Membersihkan Chat</div>
+      <div class="text-sm text-red-600">${err.message}</div>
     `;
-    if (elements.messagesEl) elements.messagesEl.appendChild(errorMsg);
+    
+    if (elements.messagesEl) {
+      elements.messagesEl.appendChild(errorMsg);
+    }
   }
 }
 
 function loadClearedChats() {
   try {
-    // Load dari localStorage
     const saved = localStorage.getItem('clearedChats');
     if (saved) {
       state.clearedChats = JSON.parse(saved);
-      console.log('📁 Loaded cleared chats:', Object.keys(state.clearedChats).length);
     }
     
-    // Load dari sessionStorage (backup)
     if (!state.clearedChats) state.clearedChats = {};
     const keys = Object.keys(sessionStorage);
     keys.forEach(key => {
@@ -1014,49 +911,7 @@ function loadClearedChats() {
   }
 }
 
-// Fungsi untuk verifikasi clear chat
-async function verifyChatCleared() {
-  if (!state.currentContext) return;
-  
-  console.log('🔍 Verifying chat is cleared...');
-  
-  try {
-    let endpoint = "";
-    
-    if (state.currentContext.type === "global") {
-      endpoint = `${API_ROOT}/messages/global/count`;
-    } else if (state.currentContext.type === "room") {
-      endpoint = `${API_ROOT}/rooms/${state.currentContext.roomId}/messages/count`;
-    } else if (state.currentContext.type === "private") {
-      endpoint = `${API_ROOT}/private/${myId}/${state.currentContext.userId}/count`;
-    }
-    
-    const res = await fetch(endpoint, {
-      headers: { Authorization: "Bearer " + token }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      console.log(`📊 Message count after clear: ${data.count}`);
-      
-      if (data.count > 0) {
-        console.warn(`⚠️ Masih ada ${data.count} pesan di database!`);
-        return false;
-      }
-      
-      return true;
-    }
-  } catch (error) {
-    console.error('Verification error:', error);
-  }
-  
-  return false;
-}
-
-// Ekspos ke window
-window.verifyChatCleared = verifyChatCleared;
-
-// ==================== WEBSOCKET (IMPROVED) ====================
+// ==================== WEBSOCKET ====================
 function connectWS() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   const url = `${protocol}://${location.host}${WS_PATH}?token=${token}`;
@@ -1065,20 +920,16 @@ function connectWS() {
 
   state.ws.onopen = () => {
     console.log("✅ WS Connected!");
+    console.log("ini token" + token);
     
-    // Join room jika di room context
-    if (state.currentContext.type === "room") {
+    state.ws.send(JSON.stringify({ 
+      type: "subscribe_all" 
+    }));
+    
+    if (state.currentContext && state.currentContext.type === "room") {
       state.ws.send(JSON.stringify({ 
         type: "join_room", 
         roomId: state.currentContext.roomId 
-      }));
-    }
-    
-    // Subscribe ke private chat jika di private context
-    if (state.currentContext.type === "private") {
-      state.ws.send(JSON.stringify({
-        type: "subscribe_private",
-        userId: state.currentContext.userId
       }));
     }
   };
@@ -1087,7 +938,6 @@ function connectWS() {
     let data;
     try { 
       data = JSON.parse(ev.data); 
-      console.log('📨 WS Received:', data.type);
     } catch (e) { 
       console.error("Failed to parse WS message:", ev.data);
       return; 
@@ -1105,8 +955,6 @@ function connectWS() {
 }
 
 function handleWS(data) {
-  console.log('📨 WS MESSAGE:', data.type, data);
-
   switch (data.type) {
     case "init":
       if (data.rooms) renderRooms(data.rooms, setContext);
@@ -1117,57 +965,77 @@ function handleWS(data) {
       break;
 
     case "global_message":
-      console.log('🌍 Global message received');
       if (state.currentContext.type === "global") {
-        renderMessage(data.message);
+        const clearKey = `CLEAR_TIME_global_global`;
+        const clearTimeStr = localStorage.getItem(clearKey);
+        
+        if (clearTimeStr) {
+          const clearTime = new Date(clearTimeStr);
+          const msgTime = new Date(data.message.created_at);
+          
+          if (msgTime > clearTime) {
+            renderMessage(data.message);
+          }
+        } else {
+          renderMessage(data.message);
+        }
       }
       break;
 
     case "room_message":
-      console.log('👥 Room message received');
       if (state.currentContext.type === "room" && 
           Number(state.currentContext.roomId) === Number(data.message.room_id)) {
-        renderMessage(data.message);
+        
+        const clearKey = `CLEAR_TIME_room_${state.currentContext.roomId}`;
+        const clearTimeStr = localStorage.getItem(clearKey);
+        
+        if (clearTimeStr) {
+          const clearTime = new Date(clearTimeStr);
+          const msgTime = new Date(data.message.created_at);
+          
+          if (msgTime > clearTime) {
+            renderMessage(data.message);
+          }
+        } else {
+          renderMessage(data.message);
+        }
       }
       break;
 
     case "private_message":
-      console.log('🔒 Private message received:', data.message);
-      
-      // Debug detail
-      console.log('Private message debug:', {
-        sender_id: data.message.sender_id,
-        recipient_id: data.message.recipient_id,
-        myId: myId,
-        currentContext: state.currentContext
-      });
-      
-      // SEDERHANAKAN: Tampilkan jika sedang di chat yang relevan
       if (state.currentContext.type === "private") {
         const msgSenderId = Number(data.message.sender_id);
         const msgRecipientId = Number(data.message.recipient_id);
         const currentUserId = Number(state.currentContext.userId);
         const myIdNum = Number(myId);
         
-        const shouldShow = 
+        const shouldShowByContext = 
           (msgSenderId === myIdNum && msgRecipientId === currentUserId) ||
           (msgSenderId === currentUserId && msgRecipientId === myIdNum);
         
-        if (shouldShow) {
-          console.log('✅ Rendering private message');
-          data.message.username = data.message.username || 
-            (data.message.sender_id == myId ? myUsername : state.currentContext.username);
-          renderMessage(data.message);
-        } else {
-          console.log('❌ Skipping private message - wrong context');
+        if (shouldShowByContext) {
+          const clearKey = `CLEAR_TIME_private_${state.currentContext.userId}`;
+          const clearTimeStr = localStorage.getItem(clearKey);
+          
+          if (clearTimeStr) {
+            const clearTime = new Date(clearTimeStr);
+            const msgTime = new Date(data.message.created_at);
+            
+            if (msgTime > clearTime) {
+              data.message.username = data.message.username || 
+                (data.message.sender_id == myId ? myUsername : state.currentContext.username);
+              renderMessage(data.message);
+            }
+          } else {
+            data.message.username = data.message.username || 
+              (data.message.sender_id == myId ? myUsername : state.currentContext.username);
+            renderMessage(data.message);
+          }
         }
       }
       break;
 
     case "file_message":
-      console.log('📄 File message received:', data.message);
-      
-      // Sama seperti private_message
       if (state.currentContext.type === "private") {
         const msgSenderId = Number(data.message.sender_id);
         const msgRecipientId = Number(data.message.recipient_id);
@@ -1179,21 +1047,19 @@ function handleWS(data) {
           (msgSenderId === currentUserId && msgRecipientId === myIdNum);
         
         if (shouldShow) {
-          console.log('✅ Rendering file message');
           data.message.username = data.message.username || 
             (data.message.sender_id == myId ? myUsername : state.currentContext.username);
           renderMessage(data.message);
         }
+      } else if (state.currentContext.type === "room") {
+        if (Number(data.message.room_id) === Number(state.currentContext.roomId)) {
+          renderMessage(data.message);
+        }
+      } else if (state.currentContext.type === "global") {
+        if (!data.message.room_id && !data.message.recipient_id) {
+          renderMessage(data.message);
+        }
       }
-      break;
-      
-    case "file_uploaded":
-    case "voice_uploaded":
-      // **PERBAIKAN**: Handle direct file upload notifications
-      console.log(`📤 ${data.type} notification:`, data);
-      
-      // Kirim request untuk get message yang baru saja diupload
-      fetchNewFileMessage(data.fileUrl, data.context);
       break;
 
     case "user_online":
@@ -1207,7 +1073,6 @@ function handleWS(data) {
     }
 
     case "contact_request":
-      console.log('📨 New contact request from:', data.fromUsername);
       loadPendingRequests();
       
       if (Notification.permission === "granted") {
@@ -1218,7 +1083,6 @@ function handleWS(data) {
       break;
       
     case "contact_accepted":
-      console.log('✅ Contact request accepted by:', data.byUsername);
       loadContacts();
       
       if (Notification.permission === "granted") {
@@ -1250,98 +1114,14 @@ function handleWS(data) {
       cleanupCall();
       break;
 
-      case "check_new_messages":
-      // Jika saya adalah penerima, cek messages baru
-      if (data.recipientId == myId) {
-        console.log('🔔 Notification to check new messages');
-        
-        // Tunggu 1 detik lalu cek
-        setTimeout(() => {
-          if (state.currentContext && state.currentContext.userId == data.senderId) {
-            checkForNewMessages(state.currentContext);
-          }
-        }, 1000);
-      }
-      break;
-      
-    case "force_refresh":
-      // Force refresh chat
-      if (state.currentContext) {
-        console.log('🔄 Force refreshing chat...');
-        loadMessagesForCurrentContext();
-      }
-      break;
-
     default:
-      console.log('❓ Unknown WS type:', data.type);
+      console.log('Unknown WS type:', data.type);
       break;
-  }
-}
-
-function checkFileMessageRelevance(message) {
-  const context = state.currentContext;
-  
-  if (!context) return false;
-  
-  // Global file messages
-  if (!message.room_id && !message.recipient_id && context.type === "global") {
-    return true;
-  }
-  
-  // Room file messages
-  if (message.room_id && context.type === "room" && 
-      message.room_id == context.roomId) {
-    return true;
-  }
-  
-  // Private file messages
-  if (message.recipient_id && context.type === "private") {
-    // Message untuk saya dari current user
-    if (message.recipient_id == myId && message.sender_id == context.userId) {
-      return true;
-    }
-    
-    // Message dari saya ke current user
-    if (message.sender_id == myId && message.recipient_id == context.userId) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-// **Fungsi baru**: Fetch file message setelah upload
-async function fetchNewFileMessage(fileUrl, context) {
-  try {
-    let endpoint = "";
-    
-    if (context.type === "room") {
-      endpoint = `${API_ROOT}/rooms/${context.roomId}/messages/latest`;
-    } else if (context.type === "private") {
-      endpoint = `${API_ROOT}/private/${myId}/${context.userId}/latest`;
-    } else {
-      endpoint = `${API_ROOT}/messages/global/latest`;
-    }
-    
-    const res = await fetch(endpoint, {
-      headers: { Authorization: "Bearer " + token }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      if (data.message && data.message.file_url === fileUrl) {
-        renderMessage(data.message);
-      }
-    }
-  } catch (error) {
-    console.error('Error fetching new file message:', error);
   }
 }
 
 // ==================== VOICE CALL FUNCTIONS ====================
 async function startCall(targetUserId) {
-  console.log('📞 Starting call to:', targetUserId);
-  
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     alert("Tidak terhubung ke server");
     return;
@@ -1369,7 +1149,6 @@ async function startCall(targetUserId) {
     });
 
     state.peerConnection.ontrack = (event) => {
-      console.log('✅ Received remote stream');
       state.remoteStream = event.streams[0];
       if (elements.remoteAudio) {
         elements.remoteAudio.srcObject = state.remoteStream;
@@ -1419,7 +1198,6 @@ async function startCall(targetUserId) {
 
 async function answerCall() {
   if (!state.currentCallId) {
-    console.log('❌ No active call to answer');
     return;
   }
 
@@ -1440,7 +1218,6 @@ async function answerCall() {
     });
 
     state.peerConnection.ontrack = (event) => {
-      console.log('✅ Received remote stream');
       state.remoteStream = event.streams[0];
       if (elements.remoteAudio) {
         elements.remoteAudio.srcObject = state.remoteStream;
@@ -1472,9 +1249,7 @@ async function answerCall() {
       }));
 
       showCallUI("Sedang Berbicara...", false);
-      console.log('✅ Call answered');
     } else {
-      console.log('❌ No pending offer');
       endCall();
     }
 
@@ -1523,10 +1298,7 @@ function cleanupCall() {
 }
 
 async function handleIncomingCall(data) {
-  console.log('📞 Incoming call from:', data.callerName);
-  
   if (state.currentCallId) {
-    console.log('❌ Busy, rejecting');
     state.ws.send(JSON.stringify({
       type: "call_reject", 
       callId: data.callId
@@ -1544,12 +1316,9 @@ async function handleIncomingCall(data) {
 }
 
 async function handleCallAnswer(data) {
-  console.log('📞 Call answered:', data.callId);
-  
   if (state.peerConnection && state.currentCallId === data.callId) {
     try {
       await state.peerConnection.setRemoteDescription(data.answer);
-      console.log('✅ Remote description set');
     } catch (error) {
       console.error('Error setting remote description:', error);
       endCall();
@@ -1589,49 +1358,9 @@ function startStatusChecker() {
   }, 30000);
 }
 
-async function testEndpoints() {
-  console.log('🔍 Testing endpoints...');
-  
-  const endpoints = [
-    { name: 'Global from init', url: API_ROOT + "/init" },
-    { name: 'Global messages', url: API_ROOT + "/messages/global" },
-    { name: 'Global chat', url: API_ROOT + "/chat/global" },
-    { name: 'Global', url: API_ROOT + "/global/messages" },
-  ];
-  
-  for (const endpoint of endpoints) {
-    try {
-      const res = await fetch(endpoint.url, {
-        headers: { Authorization: "Bearer " + token },
-      });
-      
-      console.log(`${endpoint.name} (${endpoint.url}): HTTP ${res.status}`);
-      
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`✅ Works! Response keys:`, Object.keys(data));
-        
-        if (data.messages) {
-          console.log(`   Found ${data.messages.length} messages`);
-        }
-        
-        return endpoint.url; // Return endpoint yang berhasil
-      }
-    } catch (error) {
-      console.log(`❌ ${endpoint.name} failed:`, error.message);
-    }
-  }
-  
-  console.error('No working endpoint found!');
-  return null;
-}
-
 // ==================== INITIALIZATION ====================
 async function init() {
   document.addEventListener("DOMContentLoaded", async () => {
-    console.log('🚀 Initializing chat...');
-
-    // Load cleared chats
     loadClearedChats();
 
     initUI();
@@ -1644,9 +1373,6 @@ async function init() {
 
     connectWS();
     startStatusChecker();
-    
-    // Start background polling untuk messages baru
-    startBackgroundPolling();
 
     console.log('✅ Chat initialized');
   });
@@ -1679,102 +1405,6 @@ async function init() {
   
   console.log('✅ Chat initialized');
 }
-
-function startBackgroundPolling() {
-  // Poll setiap 30 detik untuk messages baru
-  setInterval(() => {
-    if (state.currentContext && document.visibilityState === 'visible') {
-      checkForNewMessages(state.currentContext);
-    }
-  }, 30000);
-}
-// Di akhir chat-main.js
-window.debugMessages = async function() {
-  console.log('🔍 Debug messages...');
-  console.log('Current context:', state.currentContext);
-  console.log('Cleared chats:', state.clearedChats);
-  console.log('Active pollers:', Object.keys(state.messagePollers).length);
-  
-  // Cek messages di database
-  if (state.currentContext) {
-    const count = await getMessageCount(state.currentContext);
-    console.log(`Messages in database: ${count}`);
-  }
-};
-
-async function getMessageCount(context) {
-  try {
-    let endpoint = '';
-    
-    if (context.type === 'private') {
-      endpoint = `${API_ROOT}/private/${myId}/${context.userId}/count`;
-    } else if (context.type === 'room') {
-      endpoint = `${API_ROOT}/rooms/${context.roomId}/messages/count`;
-    } else {
-      endpoint = `${API_ROOT}/messages/global/count`;
-    }
-    
-    const res = await fetch(endpoint, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      return data.count || 0;
-    }
-  } catch (error) {
-    console.error('Error getting message count:', error);
-  }
-  
-  return 0;
-}
-// Fungsi debug untuk test realtime
-window.debugRealtime = function() {
-  console.log('🔍 DEBUG REAL-TIME:');
-  console.log('1. WebSocket status:', {
-    wsExists: !!state.ws,
-    readyState: state.ws?.readyState,
-    OPEN: WebSocket.OPEN,
-    isConnected: state.ws?.readyState === WebSocket.OPEN
-  });
-  
-  console.log('2. Current context:', state.currentContext);
-  
-  console.log('3. My info:', {
-    myId: myId,
-    myUsername: myUsername
-  });
-  
-  console.log('4. Test sending message...');
-  
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    // Send test message
-    const testMsg = {
-      type: "private_message",
-      recipientId: state.currentContext.userId,
-      content: `TEST: ${new Date().toLocaleTimeString()}`
-    };
-    
-    state.ws.send(JSON.stringify(testMsg));
-    console.log('📤 Test message sent:', testMsg);
-    
-    return true;
-  } else {
-    console.log('❌ WebSocket not connected');
-    return false;
-  }
-};
-
-// Test filter function
-window.testFilter = function(senderId, recipientId) {
-  const testMessage = {
-    sender_id: senderId,
-    recipient_id: recipientId,
-    content: "Test message"
-  };
-  
-  return shouldShowMessageForContext(testMessage);
-};
 
 // Start everything
 init();
