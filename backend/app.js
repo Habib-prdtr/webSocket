@@ -940,6 +940,50 @@ app.get('/api/private/:me/:target/count', authMiddleware, async (req, res) => {
   }
 });
 
+// API endpoints untuk server (Node.js/Express contoh)
+app.get('/api/rooms/:roomId/messages/count', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    // Query database untuk jumlah pesan di room
+    const count = await db.message.count({ where: { room_id: roomId } });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/private/:user1/:user2/count', async (req, res) => {
+  try {
+    const { user1, user2 } = req.params;
+    // Query database untuk jumlah pesan private antara dua user
+    const count = await db.message.count({
+      where: {
+        OR: [
+          { sender_id: user1, recipient_id: user2 },
+          { sender_id: user2, recipient_id: user1 }
+        ]
+      }
+    });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:userId/status', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    // Query database untuk status user
+    const user = await db.user.findUnique({
+      where: { id: parseInt(userId) },
+      select: { is_online: true, last_seen: true }
+    });
+    res.json(user || { is_online: false, last_seen: null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== DEBUG CLEAR STATUS ====================
 app.get('/api/debug/clear-status/:userId?', authMiddleware, async (req, res) => {
   try {

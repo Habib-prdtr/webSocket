@@ -73,49 +73,51 @@
       border-radius: 18px 18px 18px 4px;
     }
 
-    .voice-player {
-      width: 200px;
-      height: 40px;
-      border-radius: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    /* Animations */
+    @keyframes pulse {
+      50% { opacity: .5; }
     }
-
-    .voice-player::-webkit-media-controls-panel {
-      background: transparent;
-    }
-
-    .voice-player::-webkit-media-controls-play-button {
-      background-color: white;
-      border-radius: 50%;
-    }
-
-    .voice-player::-webkit-media-controls-current-time-display,
-    .voice-player::-webkit-media-controls-time-remaining-display {
-      color: white;
-      font-size: 12px;
-    }
-
-    .animate-pulse {
-        animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-      }
-
-      /* Voice message bubble */
-      .voice-bubble {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 20px;
-        padding: 12px 16px;
-        max-width: 280px;
-      }
-
-      .voice-bubble-other {
-        background: #f3f4f6;
-        color: #374151;
-        border-radius: 20px;
-        padding: 12px 16px;
-        max-width: 280px;
-      }
     
+    .animate-pulse {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    
+    @keyframes ping {
+      75%, 100% {
+        transform: scale(2);
+        opacity: 0;
+      }
+    }
+    
+    .animate-ping {
+      animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+    
+    @keyframes typing-bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+    }
+    
+    .typing-dot {
+      animation: typing-bounce 1.4s infinite ease-in-out;
+    }
+    
+    /* Voice message bubble */
+    .voice-bubble {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 20px;
+      padding: 12px 16px;
+      max-width: 280px;
+    }
+
+    .voice-bubble-other {
+      background: #f3f4f6;
+      color: #374151;
+      border-radius: 20px;
+      padding: 12px 16px;
+      max-width: 280px;
+    }
   </style>
 </head>
 <body class="bg-slate-100 h-screen overflow-hidden">
@@ -145,7 +147,6 @@
       >
         Contacts
       </button>
-      <!-- Ganti bagian badge di tab Requests menjadi: -->
       <button 
         data-tab="requests" 
         id="btnTabRequests" 
@@ -170,19 +171,6 @@
           <div class="text-xs uppercase text-slate-400 mb-2">Chat Rooms</div>
           <div id="roomsList" class="space-y-1"></div>
         </div>
-        
-        <!-- <div class="p-3 border-t">
-          <div class="flex gap-2">
-            <input 
-              id="newRoomName" 
-              class="flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" 
-              placeholder="New room name"
-            >
-            <button id="btnCreateRoom" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded text-sm transition-colors">
-              Create
-            </button>
-          </div>
-        </div> -->
       </div>
 
       <!-- CONTACTS TAB CONTENT -->
@@ -226,18 +214,40 @@
 
   <!-- CHAT AREA -->
   <main class="flex-1 flex flex-col">
-    <header class="p-4 border-b bg-white flex items-center">
-      <div>
-        <div id="chatTitle" class="font-semibold">Global</div>
-        <div id="chatSubtitle" class="text-sm text-slate-500">Public global chat</div>
+    <header class="p-4 border-b bg-white">
+      <div class="flex items-center justify-between mb-1">
+        <div id="chatTitle" class="font-semibold text-lg">Global</div>
+        <button 
+          id="btnClearChat" 
+          class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors hidden"
+        >
+          Bersihkan
+        </button>
       </div>
-
-      <button 
-        id="btnClearChat" 
-        class="ml-auto bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors hidden"
-      >
-        Bersihkan
-      </button>
+      
+      <!-- Chat Info Header -->
+      <div id="chatHeaderInfo" class="flex items-center gap-3 text-sm text-slate-500">
+        <!-- Subtitle -->
+        <span id="chatSubtitle">Public global chat</span>
+        
+        <!-- Online Status (only for private chat) -->
+        <div id="onlineStatusBadge" class="hidden flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100">
+          <span id="statusDot" class="w-2 h-2 rounded-full bg-gray-400"></span>
+          <span id="statusText" class="text-xs">Offline</span>
+        </div>
+        
+        <!-- Message Count -->
+        <div id="messageCountBadge" class="hidden flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+          <span class="text-xs">💬</span>
+          <span id="messageCountText" class="text-xs font-medium">0 messages</span>
+        </div>
+        
+        <!-- Latency/Ping -->
+        <div id="latencyBadge" class="hidden flex items-center gap-1 px-2 py-0.5 rounded-full">
+          <span id="latencyDot" class="w-2 h-2 rounded-full bg-gray-400"></span>
+          <span id="latencyText" class="text-xs font-medium">-- ms</span>
+        </div>
+      </div>
     </header>
 
     <section id="messages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 flex flex-col"></section>
@@ -390,7 +400,7 @@
       </button>
     </div>
     
-    <!-- Recording Visualizer (Optional) -->
+    <!-- Recording Visualizer -->
     <div class="mt-6 flex justify-center gap-1 h-8" id="audioVisualizer">
       <div class="w-1 bg-red-300 rounded-full animate-pulse"></div>
       <div class="w-1 bg-red-400 rounded-full animate-pulse" style="animation-delay: 0.1s"></div>
@@ -401,46 +411,6 @@
     
   </div>
 </div>
-
-<!-- Tambahkan di chat.html -->
-<button onclick="testVoiceUpload()" class="bg-red-500 text-white px-3 py-1 rounded text-xs">
-  Test Voice Issue
-</button>
-
-<script>
-async function testVoiceUpload() {
-  console.log('🔬 Testing voice upload...');
-  
-  // 1. Cek apakah file tersimpan di server
-  const testBlob = new Blob(['test'], { type: 'audio/webm' });
-  const formData = new FormData();
-  formData.append('file', testBlob, 'test.webm');
-  formData.append('sender_id', window.myId);
-  formData.append('type', 'private');
-  formData.append('recipientId', window.state?.currentContext?.userId || 'test');
-  
-  try {
-    const res = await fetch('/api/upload/voice', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + window.token },
-      body: formData
-    });
-    
-    const data = await res.json();
-    console.log('Upload test result:', data);
-    
-    // 2. Cek database untuk messages
-    if (data.messageId) {
-      console.log('✅ Message saved with ID:', data.messageId);
-    } else {
-      console.warn('⚠️ No message ID returned');
-    }
-    
-  } catch (error) {
-    console.error('Test failed:', error);
-  }
-}
-</script>
 
 <!-- SCRIPTS -->
 <script type="module" src="./chat-config.js"></script>

@@ -133,17 +133,37 @@ export function clearMessages() {
 }
 
 export function renderMessage(m) {
-  if (!elements.messagesEl || !m) return;
+   if (!elements.messagesEl || !m) return;
   
   const messageId = m.id || m._id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
+  // CEGAH DOUBLE RENDER: Periksa apakah pesan sudah ada
+  // Periksa berdasarkan ID atau kombinasi timestamp + sender + content
   const existingMsg = document.getElementById(`message-${messageId}`);
-  if (existingMsg && !m.is_optimistic && !m.is_temp) {
-    return;
+  
+  // Untuk pesan temp, hanya tampilkan jika belum ada pesan dengan ID yang sama
+  // Untuk pesan non-temp, cek juga berdasarkan waktu dan konten
+  if (existingMsg) {
+    // Jika pesan sudah ada dan bukan pesan sementara, skip render
+    if (!m.is_temp && !m.is_optimistic) {
+      return;
+    }
+    
+    // Untuk pesan temp, jika sudah ada versi permanen (non-temp), hapus temp
+    if (m.is_temp && existingMsg.dataset.permanent === 'true') {
+      existingMsg.remove();
+    } else if (!m.is_temp && existingMsg) {
+      // Update temp dengan pesan permanen
+      existingMsg.dataset.permanent = 'true';
+      return;
+    }
   }
   
   const bubble = document.createElement("div");
   bubble.id = `message-${messageId}`;
+  if (!m.is_temp && !m.is_optimistic) {
+    bubble.dataset.permanent = 'true';
+  }
   
   const isMyMessage = m.sender_id == myId;
   const messageType = m.file_type || 'text';
@@ -546,9 +566,42 @@ export function updateUserStatus(userId, isOnline) {
   });
 }
 
-export function updateChatTitle(title, subtitle) {
+// Dalam chat-ui.js, ubah fungsi updateChatTitle:
+export function updateChatTitle(title) {
   if (elements.chatTitleEl) elements.chatTitleEl.textContent = title;
-  if (elements.chatSubtitleEl) elements.chatSubtitleEl.textContent = subtitle;
+}
+
+function updateChatLatency(latency) {
+  if (!state.currentContext || state.currentContext.type !== "private") return;
+  
+  // Update subtitle dengan latency
+  const subtitleEl = document.getElementById("chatSubtitle");
+  if (subtitleEl) {
+    const latencyInfo = subtitleEl.querySelector('.latency-info');
+    if (latencyInfo) {
+      const latencyColor = latency < 100 ? 'text-green-500' : 
+                         latency < 300 ? 'text-yellow-500' : 'text-red-500';
+      latencyInfo.innerHTML = `
+        <span class="${latencyColor} text-xs">●</span>
+        <span class="text-xs">${latency}ms</span>
+      `;
+    } else {
+      // Tambahkan latency info jika belum ada
+      const latencyEl = document.createElement('div');
+      latencyEl.className = 'latency-info flex items-center gap-1';
+      const latencyColor = latency < 100 ? 'text-green-500' : 
+                         latency < 300 ? 'text-yellow-500' : 'text-red-500';
+      latencyEl.innerHTML = `
+        <span class="${latencyColor} text-xs">●</span>
+        <span class="text-xs">${latency}ms</span>
+      `;
+      
+      const container = subtitleEl.querySelector('div');
+      if (container) {
+        container.appendChild(latencyEl);
+      }
+    }
+  }
 }
 
 export function updateClearBtnVisibility() {
