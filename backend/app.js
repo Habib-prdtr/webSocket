@@ -1033,6 +1033,13 @@ app.get('/api/debug/clear-status/:userId?', authMiddleware, async (req, res) => 
   }
 });
 
+app.get('/api/ping', async (req, res) => {
+  // await new Promise(r => setTimeout(r, 300));
+  res.sendStatus(204);
+});
+
+
+
 // ==================== SIMPLE TEST ENDPOINT ====================
 // ==================== TEST CLEAR CHECK ENDPOINT ====================
 app.get('/api/test/clear-check', authMiddleware, async (req, res) => {
@@ -1495,6 +1502,16 @@ wss.on('connection', async (ws, req) => {
     ws.on('message', async (raw) => {
       try {
         const data = JSON.parse(raw);
+
+        if (data.type === 'ping') {
+          // Kirim pong response dengan timestamp yang sama
+          ws.send(JSON.stringify({
+            type: 'pong',
+            timestamp: data.timestamp,
+            serverTime: new Date().toISOString()
+          }));
+          console.log(`📡 Sent pong for ping ${data.timestamp}`);
+        }
         
         // Global message
         if (data.type === "global_message") {

@@ -171,9 +171,9 @@ export function renderMessage(m) {
   const isVoice = messageType === "voice" || messageType === "audio";
   
   if (isMyMessage) {
-    bubble.className = "message me max-w-[85%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+    bubble.className = "message me max-w-[40%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
   } else {
-    bubble.className = "message other max-w-[85%] self-start mr-auto bg-white border border-slate-200 text-slate-800 rounded-tl-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+    bubble.className = "message other max-w-[40%] self-start mr-auto bg-white border border-slate-200 text-slate-800 rounded-tl-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
   }
   
   // Header dengan username dan waktu
