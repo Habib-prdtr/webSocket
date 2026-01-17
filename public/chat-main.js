@@ -181,8 +181,10 @@ async function getMessageCount(context) {
 }
 
 // ==================== CONTACTS FUNCTIONS ====================
+// chat-main.js - Update fungsi loadContacts:
 export async function loadContacts() {
   try {
+    console.log('🔍 Loading contacts...');
     const res = await fetch(`${API_ROOT}/contacts`, {
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -193,7 +195,24 @@ export async function loadContacts() {
     if (!res.ok) throw new Error('Failed to load contacts');
     
     const data = await res.json();
+    console.log('📋 Contacts data:', data);
+    
     state.userList = data.contacts || [];
+    
+    // Pastikan status diisi dengan benar
+    if (data.contacts && Array.isArray(data.contacts)) {
+      data.contacts.forEach(contact => {
+        const contactId = contact.contact_id || contact.id;
+        const isOnline = contact.is_online || false;
+        
+        if (contactId) {
+          console.log(`📱 Contact ${contact.username} (${contactId}): ${isOnline ? 'online' : 'offline'}`);
+          state.userStatuses[contactId] = isOnline;
+        }
+      });
+    }
+    
+    console.log('📊 Updated userStatuses:', state.userStatuses);
     renderContacts(state.userList, setContext, startCall);
     
     return state.userList;
@@ -1087,6 +1106,29 @@ function handleWS(data) {
       }
       break;
 
+    case "call_failed": {
+      console.error('❌ Call failed:', data);
+      
+      // Tampilkan pesan error ke user
+      let errorMessage = 'Call failed';
+      
+      if (data.reason === 'offline') {
+        errorMessage = 'Contact is offline';
+      } else if (data.reason === 'busy') {
+        errorMessage = 'Contact is busy on another call';
+      } else if (data.reason === 'rejected') {
+        errorMessage = 'Call was rejected';
+      } else if (data.reason) {
+        errorMessage = `Call failed: ${data.reason}`;
+      }
+      
+      alert(errorMessage);
+      
+      // Cleanup call state
+      cleanupCall();
+      break;
+    }
+
     case "init":
       if (data.rooms) renderRooms(data.rooms, setContext);
       break;
@@ -1217,11 +1259,15 @@ function handleWS(data) {
       const isOnline = (data.type === 'user_online');
       
       if (uid && uid !== myId) {
-        // Update user status
+        console.log(`📱 User ${uid} status: ${isOnline ? 'online' : 'offline'}`);
+        
+        // Update user statuses
         state.userStatuses[uid] = isOnline;
+        
+        // Update UI
         updateUserStatus(uid, isOnline);
         
-        // Update header if current chat is with this user
+        // Update header jika chat aktif dengan user ini
         if (state.currentContext && 
             state.currentContext.type === 'private' && 
             Number(state.currentContext.userId) === Number(uid)) {
@@ -1284,18 +1330,26 @@ function handleWS(data) {
 }
 
 // ==================== VOICE CALL FUNCTIONS ====================
+// chat-main.js - Update fungsi startCall dengan logging:
 async function startCall(targetUserId) {
+  console.log('📞 Starting call to user:', targetUserId);
+  
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-    alert("Tidak terhubung ke server");
+    const error = "Tidak terhubung ke server";
+    console.error('❌', error);
+    alert(error);
     return;
   }
 
   if (state.currentCallId) {
-    alert("Sedang dalam panggilan");
+    const error = "Sedang dalam panggilan";
+    console.error('❌', error);
+    alert(error);
     return;
   }
 
   try {
+    console.log('🎤 Requesting microphone permission...');
     state.localStream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         echoCancellation: true,
@@ -1305,13 +1359,20 @@ async function startCall(targetUserId) {
       video: false 
     });
     
-    state.peerConnection = new RTCPeerConnection(servers);
+    console.log('✅ Microphone access granted');
     
+    state.peerConnection = new RTCPeerConnection(servers);
+    console.log('✅ RTCPeerConnection created');
+    
+    // Add local tracks
     state.localStream.getTracks().forEach(track => {
       state.peerConnection.addTrack(track, state.localStream);
+      console.log(`✅ Added track: ${track.kind}`);
     });
 
+    // Setup event handlers
     state.peerConnection.ontrack = (event) => {
+      console.log('📡 Received remote track:', event.track.kind);
       state.remoteStream = event.streams[0];
       if (elements.remoteAudio) {
         elements.remoteAudio.srcObject = state.remoteStream;
@@ -1321,6 +1382,7 @@ async function startCall(targetUserId) {
 
     state.peerConnection.onicecandidate = (event) => {
       if (event.candidate && state.currentCallId) {
+        console.log('🧊 ICE candidate generated');
         state.ws.send(JSON.stringify({
           type: "ice_candidate",
           candidate: event.candidate,
@@ -1329,36 +1391,69 @@ async function startCall(targetUserId) {
         }));
       }
     };
+    
+    state.peerConnection.onconnectionstatechange = () => {
+      console.log('🔄 Connection state:', state.peerConnection.connectionState);
+    };
+    
+    state.peerConnection.oniceconnectionstatechange = () => {
+      console.log('🧊 ICE connection state:', state.peerConnection.iceConnectionState);
+    };
 
+    // Create offer
+    console.log('📝 Creating offer...');
     const offer = await state.peerConnection.createOffer();
+    console.log('✅ Offer created:', offer.type);
+    
     await state.peerConnection.setLocalDescription(offer);
+    console.log('✅ Local description set');
 
+    // Generate call ID
     state.currentCallId = 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     window.currentCalleeId = targetUserId;
+    
+    console.log('📤 Sending call offer, callId:', state.currentCallId);
 
+    // Send call offer via WebSocket
     state.ws.send(JSON.stringify({
       type: "call_offer",
       targetUserId: targetUserId,
       offer: offer,
-      callId: state.currentCallId
+      callId: state.currentCallId,
+      callerName: myUsername,
+      timestamp: Date.now()
     }));
 
+    console.log('✅ Call offer sent');
     showCallUI("Memanggil...", true);
     
-    setTimeout(() => {
-      if (state.currentCallId && state.peerConnection.connectionState !== 'connected') {
+    // Set timeout for unanswered call
+    state.callTimeout = setTimeout(() => {
+      if (state.currentCallId && 
+          state.peerConnection?.connectionState !== 'connected' &&
+          state.peerConnection?.connectionState !== 'connecting') {
+        console.log('⏰ Call timeout - no answer');
         alert("Panggilan tidak dijawab");
         endCall();
       }
     }, 30000);
 
   } catch (error) {
-    console.error("Error starting call:", error);
-    alert("Gagal memulai panggilan: " + error.message);
+    console.error("❌ Error starting call:", error);
+    
+    let userMessage = "Gagal memulai panggilan";
+    if (error.name === 'NotAllowedError') {
+      userMessage = "Microphone access denied. Please allow microphone access.";
+    } else if (error.name === 'NotFoundError') {
+      userMessage = "No microphone found. Please check your audio device.";
+    } else {
+      userMessage = `Gagal memulai panggilan: ${error.message}`;
+    }
+    
+    alert(userMessage);
     cleanupCall();
   }
 }
-
 async function answerCall() {
   if (!state.currentCallId) {
     return;
@@ -1559,6 +1654,36 @@ function setupTypingIndicator() {
   }
 }
 
+export async function refreshUserStatus(userId) {
+  try {
+    console.log(`🔄 Refreshing status for user ${userId}`);
+    const res = await fetch(`${API_ROOT}/users/${userId}/status`, {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      const isOnline = data.is_online || false;
+      
+      console.log(`✅ User ${userId} status: ${isOnline ? 'online' : 'offline'}`);
+      
+      // Update state
+      state.userStatuses[userId] = isOnline;
+      
+      // Update UI
+      updateUserStatus(userId, isOnline);
+      
+      return isOnline;
+    }
+  } catch (error) {
+    console.error(`❌ Error refreshing status for ${userId}:`, error);
+  }
+  return false;
+}
+
 // ==================== INITIALIZATION ====================
 async function init() {
   document.addEventListener("DOMContentLoaded", async () => {
@@ -1598,9 +1723,41 @@ async function init() {
   window.rejectCall = rejectCall;
   window.endCall = endCall;
   window.searchUsers = searchUsers;
+  window.refreshUserStatus = refreshUserStatus;
   
   console.log('✅ Chat initialized');
 }
 
 // Start everything
 init();
+
+// Debug function untuk memeriksa status kontak
+window.debugContactStatus = function() {
+  console.log('=== DEBUG CONTACT STATUS ===');
+  console.log('Current userList:', state.userList);
+  console.log('User statuses:', state.userStatuses);
+  console.log('Current user id:', myId);
+  
+  // Cek contact dengan id 4
+  const contact4 = state.userList?.find(u => 
+    u.id == 4 || u.contact_id == 4
+  );
+  console.log('Contact 4 data:', contact4);
+  
+  // Cek DOM elements
+  const contactItems = document.querySelectorAll('.contactItem');
+  console.log(`Found ${contactItems.length} contact items`);
+  
+  contactItems.forEach(item => {
+    if (item.dataset.contactId === '4') {
+      console.log('DOM Element for contact 4:', {
+        id: item.dataset.contactId,
+        username: item.dataset.username,
+        online: item.dataset.online,
+        callBtn: item.querySelector('.btn-call-contact'),
+        callBtnDisabled: item.querySelector('.btn-call-contact')?.disabled,
+        callBtnClasses: item.querySelector('.btn-call-contact')?.className
+      });
+    }
+  });
+};

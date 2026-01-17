@@ -348,6 +348,13 @@ export function renderContacts(list, setContextCallback, startCallCallback) {
     const contactId = contact.contact_id || contact.id;
     const username = contact.username || '';
     const isOnline = contact.is_online || false;
+    
+    // INI PENTING: Set dataset.online dengan benar
+    el.dataset.contactId = contactId;
+    el.dataset.username = username;
+    el.dataset.online = isOnline.toString(); // Pastikan ini string "true" atau "false"
+    
+    console.log(`🖥️ Rendering contact ${username}: online=${isOnline}`);
     const lastSeen = contact.last_seen ? 
       new Date(contact.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 
       '';
@@ -527,16 +534,22 @@ export function updateUserStatus(userId, isOnline) {
   const contactEls = document.querySelectorAll(`.contactItem[data-contact-id="${userId}"]`);
   
   contactEls.forEach(contactEl => {
+    // Update data attribute
+    contactEl.dataset.online = isOnline.toString();
+    
+    // Update avatar background
     const avatarDiv = contactEl.querySelector('.w-10.h-10.rounded-full');
     if (avatarDiv) {
       avatarDiv.className = `w-10 h-10 rounded-full ${isOnline ? 'bg-green-100' : 'bg-slate-100'} flex items-center justify-center`;
     }
     
+    // Update online indicator dot
     const onlineDot = contactEl.querySelector('.absolute.bottom-0.right-0');
     if (onlineDot) {
       onlineDot.className = `absolute bottom-0 right-0 w-3 h-3 ${isOnline ? 'bg-green-500' : 'bg-slate-400'} border-2 border-white rounded-full`;
     }
     
+    // Update status text
     const statusText = contactEl.querySelector('.text-xs.text-slate-400');
     if (statusText) {
       if (isOnline) {
@@ -547,23 +560,38 @@ export function updateUserStatus(userId, isOnline) {
       }
     }
     
+    // Update call button - PERBAIKAN UTAMA DI SINI
     const callBtn = contactEl.querySelector('.btn-call-contact');
     if (callBtn) {
       if (isOnline) {
+        // Enable call button
         callBtn.classList.remove('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
         callBtn.classList.add('bg-green-100', 'text-green-600', 'hover:bg-green-200');
         callBtn.disabled = false;
         callBtn.title = 'Call';
+        
+        // Hapus atribut disabled
+        callBtn.removeAttribute('disabled');
       } else {
+        // Disable call button
         callBtn.classList.remove('bg-green-100', 'text-green-600', 'hover:bg-green-200');
         callBtn.classList.add('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
         callBtn.disabled = true;
         callBtn.title = 'Offline';
+        
+        // Tambah atribut disabled
+        callBtn.setAttribute('disabled', 'disabled');
       }
     }
-    
-    contactEl.dataset.online = isOnline.toString();
   });
+  
+  // Juga update di userList state
+  if (state.userList) {
+    const userIndex = state.userList.findIndex(u => u.id == userId || u.contact_id == userId);
+    if (userIndex !== -1) {
+      state.userList[userIndex].is_online = isOnline;
+    }
+  }
 }
 
 // Dalam chat-ui.js, ubah fungsi updateChatTitle:
@@ -927,35 +955,55 @@ export function setupStaticEventListeners() {
 }
 
 export function setupEventDelegation() {
-  // Delegasi untuk kontak list
-  if (elements.contactsListEl) {
-    elements.contactsListEl.addEventListener('click', function(e) {
-      const target = e.target;
-      const contactItem = target.closest('.contactItem');
+  // chat-ui.js - Perbaiki handler tombol call:
+if (elements.contactsListEl) {
+  elements.contactsListEl.addEventListener('click', function(e) {
+    const target = e.target;
+    const contactItem = target.closest('.contactItem');
+    
+    if (!contactItem) return;
+    
+    const contactId = contactItem.dataset.contactId;
+    const username = contactItem.dataset.username;
+    
+    // TOMBOL CALL - PERBAIKAN UTAMA
+    if (target.classList.contains('btn-call-contact') || target.closest('.btn-call-contact')) {
+      e.stopPropagation();
+      e.preventDefault();
       
-      if (!contactItem) {
-        if (target.id === 'btnAddFirstContact' || target.closest('#btnAddFirstContact')) {
-          e.stopPropagation();
-          showAddContactModal();
+      // Cek status dari STATE, bukan hanya dari dataset
+      const stateOnline = state.userStatuses[contactId];
+      const datasetOnline = contactItem.dataset.online === 'true';
+      const isOnline = stateOnline !== undefined ? stateOnline : datasetOnline;
+      
+      console.log('📞 Call button clicked:', { 
+        contactId, 
+        username, 
+        datasetOnline, 
+        stateOnline,
+        finalIsOnline: isOnline 
+      });
+      
+      if (isOnline && window.startCall && contactId) {
+        console.log('✅ Starting call to:', username);
+        window.startCall(contactId);
+      } else {
+        // Jika offline, refresh dulu baru coba lagi
+        const refresh = confirm(`${username} appears offline. Refresh status?`);
+        if (refresh && window.refreshUserStatus) {
+          window.refreshUserStatus(contactId).then(newStatus => {
+            if (newStatus) {
+              alert(`${username} is now online! You can call now.`);
+            } else {
+              alert(`${username} is still offline.`);
+            }
+          });
+        } else {
+          alert(`${username} is offline. Cannot make call.`);
         }
-        return;
       }
-      
-      const contactId = contactItem.dataset.contactId;
-      const username = contactItem.dataset.username;
-      const isOnline = contactItem.dataset.online === 'true';
-      
-      // Tombol call contact
-      if (target.classList.contains('btn-call-contact') || target.closest('.btn-call-contact')) {
-        e.stopPropagation();
-        
-        if (isOnline && window.startCall && contactId) {
-          window.startCall(contactId);
-        } else if (!isOnline) {
-          alert('This contact is offline');
-        }
-        return;
-      }
+      return;
+    }
       
       // Tombol chat contact
       if (target.classList.contains('btn-chat-contact') || target.closest('.btn-chat-contact')) {
