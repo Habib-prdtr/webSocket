@@ -4,6 +4,7 @@ require('dotenv').config();
 const express = require('express');
 const https = require('https');
 const { WebSocketServer } = require('ws');
+const net = require('net');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -1525,7 +1526,7 @@ wss.on('connection', async (ws, req) => {
             message: {
               sender_id: ws.userId,
               content,
-              username: `Global — ${ws.username}`,
+              username: ws.username,
               room_id: null,
               recipient_id: null,
               created_at: new Date().toISOString()
@@ -1747,6 +1748,119 @@ wss.on('connection', async (ws, req) => {
     console.error('ws connection error', e);
     try { ws.close(); } catch (e) {}
   }
+});
+
+// ==================== TCP SERVER ====================
+
+const tcpClients = new Map();
+
+const tcpServer = net.createServer((socket) => {
+  console.log('TCP client connected');
+
+  let user = null;
+  let buffer = '';
+
+  socket.on('data', async (data) => {
+    buffer += data.toString();
+    let lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line
+
+    for (let line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        
+        if (msg.type === 'auth') {
+          // Authenticate
+          const token = msg.token;
+          try {
+            user = jwt.verify(token, SECRET);
+            socket.userId = user.id;
+            socket.username = user.username;
+            tcpClients.set(socket, { userId: user.id, username: user.username });
+
+            await pool.query('UPDATE users SET is_online = 1 WHERE id = ?', [user.id]);
+
+            // Send init data (TCP only supports global chat)
+            const [allUsers] = await pool.query('SELECT id, username, is_online FROM users ORDER BY username ASC');
+            
+            socket.write(JSON.stringify({ 
+              type: 'init', 
+              users: allUsers 
+            }) + '\n');
+
+            console.log(`TCP: User ${user.username} authenticated`);
+          } catch (e) {
+            socket.write(JSON.stringify({ type: 'error', message: 'Invalid token' }) + '\n');
+            socket.end();
+          }
+          continue;
+        }
+
+        if (!user) {
+          socket.write(JSON.stringify({ type: 'error', message: 'Not authenticated' }) + '\n');
+          continue;
+        }
+
+        // Handle messages similar to WebSocket
+        if (msg.type === 'global_message') {
+          const content = msg.content || "";
+          if (!content) continue;
+
+          await pool.query('INSERT INTO messages (sender_id, room_id, content) VALUES (?, NULL, ?)', [socket.userId, content]);
+
+          const broadcastMsg = {
+            type: "global_message",
+            message: {
+              sender_id: socket.userId,
+              content,
+              username: socket.username, // Just username, not "Global — username"
+              room_id: null,
+              recipient_id: null,
+              created_at: new Date().toISOString()
+            }
+          };
+
+          // Broadcast to TCP clients
+          tcpClients.forEach((client, sock) => {
+            if (sock !== socket) {
+              sock.write(JSON.stringify(broadcastMsg) + '\n');
+            }
+          });
+
+          // Also broadcast to WebSocket clients
+          broadcastAll(broadcastMsg);
+        } else {
+          // TCP only supports global messages
+          socket.write(JSON.stringify({ type: 'error', message: 'TCP chat only supports global messages' }) + '\n');
+        }
+
+        // No room or private messages for TCP
+
+      } catch (err) {
+        console.error('TCP message error:', err);
+        socket.write(JSON.stringify({ type: 'error', message: 'Invalid message' }) + '\n');
+      }
+    }
+  });
+
+  socket.on('close', async () => {
+    if (user) {
+      tcpClients.delete(socket);
+      try {
+        await pool.query("UPDATE users SET is_online = 0 WHERE id = ?", [user.id]);
+        console.log(`TCP: User ${user.username} disconnected`);
+      } catch (e) {}
+    }
+  });
+
+  socket.on('error', (err) => {
+    console.error('TCP socket error:', err);
+  });
+});
+
+tcpServer.listen(3002, '127.0.0.1', () => {
+  console.log('✅ TCP Server listening on 127.0.0.1:3002');
 });
 
 // ==================== DEBUG ENDPOINT ====================

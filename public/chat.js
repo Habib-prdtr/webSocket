@@ -190,7 +190,7 @@ async function loadInit() {
   clearMessages();
   (data.messages || []).forEach((m) => {
     if (!m.room_id && !m.recipient_id) {
-      m.username = `Global — ${m.username}`;
+      m.username = m.username;
       renderMessage(m);
     }
   });
@@ -280,7 +280,7 @@ async function setContext(ctx) {
     (data.messages || [])
       .filter((m) => !m.room_id && !m.recipient_id)
       .forEach((m) => {
-        m.username = `Global — ${m.username}`;
+        m.username = m.username;
         renderMessage(m);
       });
 

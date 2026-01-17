@@ -461,7 +461,7 @@ async function loadMessagesForCurrentContext() {
         }
         
         filteredMessages.forEach(m => {
-          m.username = `Global — ${m.username || m.sender_username}`;
+          m.username = m.username || m.sender_username;
           m.is_from_load = true;
           renderMessage(m);
         });
