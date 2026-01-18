@@ -1523,35 +1523,24 @@ wss.on('connection', async (ws, req) => {
 
           await pool.query('INSERT INTO messages (sender_id, room_id, content) VALUES (?, NULL, ?)', [ws.userId, content]);
 
-          broadcastAll({
+          const broadcastMessage = {
             type: "global_message",
             message: {
               sender_id: ws.userId,
               content,
               username: ws.username,
-              sent_at: Date.now(),
+              sent_at: sentAt, // TAMBAHKAN TIMESTAMP
               room_id: null,
               recipient_id: null,
               created_at: new Date().toISOString()
             }
-          });
+          };
 
-          // Also broadcast to TCP clients
+          broadcastAll(broadcastMessage);
+
           tcpClients.forEach((client, sock) => {
-            sock.write(JSON.stringify({
-              type: "global_message",
-              message: {
-                sender_id: ws.userId,
-                content,
-                username: ws.username,
-                sent_at: sentAt,
-                room_id: null,
-                recipient_id: null,
-                created_at: new Date().toISOString()
-              }
-            }) + '\n');
+            sock.write(JSON.stringify(broadcastMessage) + '\n');
           });
-
           return;
         }
 
@@ -1846,6 +1835,8 @@ const tcpServer = net.createServer((socket) => {
           const content = msg.content || "";
           if (!content) continue;
 
+          const sentAt = Date.now();  
+
           await pool.query('INSERT INTO messages (sender_id, room_id, content) VALUES (?, NULL, ?)', [socket.userId, content]);
 
           const broadcastMsg = {
@@ -1853,8 +1844,8 @@ const tcpServer = net.createServer((socket) => {
             message: {
               sender_id: socket.userId,
               content,
-              username: socket.username, // Just username, not "Global — username"
-              sent_at: Date.now(),
+              username: socket.username + " (TCP)", // Just username, not "Global — username"
+              sent_at: sentAt,
               room_id: null,
               recipient_id: null,
               created_at: new Date().toISOString()

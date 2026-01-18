@@ -1088,18 +1088,15 @@ function connectWS() {
 function handleWS(data) {
   switch (data.type) {
     case "pong":
-      // Jika server benar-benar mengirim pong, gunakan yang real
       if (state.lastPing) {
         const now = Date.now();
         const realLatency = now - state.lastPing;
         state.lastPing = null;
         
-        // Validasi: ping tidak mungkin 0-5ms untuk koneksi real
         if (realLatency > 5) {
           state.latency = realLatency;
           console.log(`📡 Real ping from server: ${state.latency}ms`);
         } else {
-          // Jika ping terlalu kecil (<5ms), tetap pakai simulasi
           state.latency = 15 + Math.floor(Math.random() * 10);
           console.log(`📡 Using simulated ping: ${state.latency}ms (server ping too low)`);
         }
@@ -1152,10 +1149,20 @@ function handleWS(data) {
         }
         
         if (shouldRender) {
+          // Tandai jika pesan dari TCP (jika username mengandung TCP)
+          if (data.message.username && data.message.username.includes('TCP')) {
+            data.message.sent_at = data.message.sent_at || Date.now() - 100; // Default jika tidak ada
+          }
+          
           renderMessage(data.message);
           
-          // PERBAIKAN: Update message count hanya jika ini bukan pesan yang kita kirim sendiri
-          // atau hanya jika ini benar-benar pesan baru
+          // Log latency info
+          if (data.message.sent_at) {
+            const latency = Date.now() - data.message.sent_at;
+            console.log(`🌍 Global message latency: ${latency}ms from ${data.message.username}`);
+          }
+          
+          // Update message count
           const isMyMessage = data.message.sender_id == myId;
           if (!isMyMessage || !data.message.is_optimistic) {
             state.messageCounts['global_global'] = (state.messageCounts['global_global'] || 0) + 1;
@@ -1182,7 +1189,12 @@ function handleWS(data) {
         if (shouldRender) {
           renderMessage(data.message);
           
-          // PERBAIKAN: Update message count hanya jika ini bukan pesan yang kita kirim sendiri
+          // Log latency info
+          if (data.message.sent_at) {
+            const latency = Date.now() - data.message.sent_at;
+            console.log(`👥 Room message latency: ${latency}ms from ${data.message.username}`);
+          }
+          
           const isMyMessage = data.message.sender_id == myId;
           if (!isMyMessage || !data.message.is_optimistic) {
             const contextKey = `room_${state.currentContext.roomId}`;
@@ -1218,9 +1230,15 @@ function handleWS(data) {
           if (shouldRender) {
             data.message.username = data.message.username || 
               (data.message.sender_id == myId ? myUsername : state.currentContext.username);
+            
+            // Log latency info
+            if (data.message.sent_at) {
+              const latency = Date.now() - data.message.sent_at;
+              console.log(`🔒 Private message latency: ${latency}ms from ${data.message.username}`);
+            }
+            
             renderMessage(data.message);
             
-            // PERBAIKAN: Update message count hanya jika ini bukan pesan yang kita kirim sendiri
             const isMyMessage = data.message.sender_id == myId;
             if (!isMyMessage || !data.message.is_optimistic) {
               const contextKey = `private_${state.currentContext.userId}`;

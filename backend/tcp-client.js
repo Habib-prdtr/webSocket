@@ -192,23 +192,15 @@
             parsed.type === 'global_message' &&
             parsed.message.username !== username
           ) {
-
-            const receivedAt = Number(process.hrtime.bigint() / 1000000n);
-
-            const sentAt = parsed.message.sent_at;
-
-            let delayInfo = '';
-            if (sentAt) {
-              const delayMs = receivedAt - sentAt;
-              delayInfo = ` (${delayMs} ms)`;
-            }
-
+            // Tampilkan pesan dengan latency di terminal
             process.stdout.clearLine(0);
             process.stdout.cursorTo(0);
             process.stdout.write(
               `${parsed.message.username}: ${parsed.message.content}\n`
             );
             redrawPrompt();
+            
+            console.log(`📡 TCP Latency: ${latencyMs}ms (sent=${sentAt}, received=${receivedAt})`);
           }
         } catch {
           // ignore invalid JSON

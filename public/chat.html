@@ -118,6 +118,90 @@
       padding: 12px 16px;
       max-width: 280px;
     }
+
+    .latency-badge {
+      font-size: 0.7rem;
+      font-weight: 500;
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .message.me .latency-badge {
+      background-color: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .message.other .latency-badge {
+      background-color: rgba(0, 0, 0, 0.05);
+      border-color: rgba(0, 0, 0, 0.1);
+    }
+
+    /* Protocol badge */
+    .latency-badge span:last-child {
+      font-size: 0.6rem;
+      font-weight: 600;
+      opacity: 0.9;
+    }
+
+    /* Tooltip untuk detail latency */
+    .message {
+      position: relative;
+      cursor: help;
+      transition: transform 0.2s;
+    }
+
+    .message:hover {
+      transform: translateY(-1px);
+    }
+
+    .message:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: calc(100% + 5px);
+      left: 0;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      white-space: pre-line;
+      z-index: 1000;
+      max-width: 280px;
+      pointer-events: none;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .message.me:hover::after {
+      left: auto;
+      right: 0;
+    }
+
+    /* Animasi untuk pesan baru */
+    @keyframes messageSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message {
+      animation: messageSlideIn 0.3s ease-out;
+    }
+
+    /* TCP User badge di username */
+    .username-tcp-badge {
+      font-size: 0.6rem;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-weight: 600;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body class="bg-slate-100 h-screen overflow-hidden">

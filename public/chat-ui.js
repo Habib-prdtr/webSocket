@@ -133,27 +133,17 @@ export function clearMessages() {
 }
 
 export function renderMessage(m) {
-   if (!elements.messagesEl || !m) return;
-  
+  if (!elements.messagesEl || !m) return;
+
   const messageId = m.id || m._id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  // CEGAH DOUBLE RENDER: Periksa apakah pesan sudah ada
-  // Periksa berdasarkan ID atau kombinasi timestamp + sender + content
+  // CEGAH DOUBLE RENDER
   const existingMsg = document.getElementById(`message-${messageId}`);
-  
-  // Untuk pesan temp, hanya tampilkan jika belum ada pesan dengan ID yang sama
-  // Untuk pesan non-temp, cek juga berdasarkan waktu dan konten
   if (existingMsg) {
-    // Jika pesan sudah ada dan bukan pesan sementara, skip render
-    if (!m.is_temp && !m.is_optimistic) {
-      return;
-    }
-    
-    // Untuk pesan temp, jika sudah ada versi permanen (non-temp), hapus temp
+    if (!m.is_temp && !m.is_optimistic) return;
     if (m.is_temp && existingMsg.dataset.permanent === 'true') {
       existingMsg.remove();
     } else if (!m.is_temp && existingMsg) {
-      // Update temp dengan pesan permanen
       existingMsg.dataset.permanent = 'true';
       return;
     }
@@ -167,22 +157,92 @@ export function renderMessage(m) {
   
   const isMyMessage = m.sender_id == myId;
   const messageType = m.file_type || 'text';
-  
   const isVoice = messageType === "voice" || messageType === "audio";
   
-  if (isMyMessage) {
-    bubble.className = "message me max-w-[40%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
-  } else {
-    bubble.className = "message other max-w-[40%] self-start mr-auto bg-white border border-slate-200 text-slate-800 rounded-tl-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+  // CEK APAKAH PESAN DARI TCP
+  const isFromTCP = m.username?.includes('(TCP)') || m.sender_username?.includes('(TCP)');
+  const cleanUsername = isFromTCP ? m.username.replace(' (TCP)', '') : m.username;
+  
+  // HITUNG DAN TAMPILKAN LATENCY HANYA DI WEB
+  let latencyHTML = '';
+  let latencyMs = null;
+  
+  if (m.sent_at) {
+    const sentAt = typeof m.sent_at === 'string' ? 
+                  new Date(m.sent_at).getTime() : 
+                  m.sent_at;
+    const receivedAt = Date.now();
+    latencyMs = Math.max(0, Math.round(receivedAt - sentAt));
+    
+    // Hanya tampilkan jika latency valid (< 30 detik)
+    if (latencyMs < 30000) {
+      // Tentukan warna berdasarkan latency
+      let latencyColor = 'text-gray-500';
+      let latencyIcon = '📨';
+      let latencyText = `${latencyMs}ms`;
+      
+      if (latencyMs < 50) {
+        latencyColor = 'text-green-500';
+        latencyIcon = '⚡';
+      } else if (latencyMs < 150) {
+        latencyColor = 'text-blue-500';
+        latencyIcon = '🚀';
+      } else if (latencyMs < 500) {
+        latencyColor = 'text-yellow-500';
+        latencyIcon = '🐇';
+      } else if (latencyMs < 1000) {
+        latencyColor = 'text-orange-500';
+        latencyIcon = '🚶';
+      } else {
+        latencyColor = 'text-red-500';
+        latencyIcon = '🐢';
+      }
+      
+      // Tampilkan protocol (TCP/WS)
+      const protocolBadge = isFromTCP ? 
+        `<span class="ml-1 text-xs px-1 py-0.5 rounded bg-blue-100 text-blue-600">TCP</span>` : 
+        `<span class="ml-1 text-xs px-1 py-0.5 rounded bg-purple-100 text-purple-600">WS</span>`;
+      
+      latencyHTML = `
+        <div class="latency-container flex items-center justify-end gap-1 mt-1">
+          <div class="latency-badge ${latencyColor} text-xs flex items-center gap-1 px-2 py-0.5 rounded-full bg-opacity-10 ${latencyColor.replace('text-', 'bg-')}">
+            <span>${latencyIcon}</span>
+            <span>${latencyText}</span>
+            ${protocolBadge}
+          </div>
+        </div>
+      `;
+      
+      // Tambahkan tooltip untuk detail
+      const sentTime = new Date(sentAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+      const receivedTime = new Date(receivedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+      bubble.title = `📤 Sent: ${sentTime}\n📥 Received: ${receivedTime}\n⏱️ Latency: ${latencyMs}ms\n📡 Protocol: ${isFromTCP ? 'TCP' : 'WebSocket'}`;
+    }
   }
   
-  // Header dengan username dan waktu
+  // Bubble styling
+  if (isMyMessage) {
+    bubble.className = "message me max-w-[45%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+  } else {
+    bubble.className = "message other max-w-[45%] self-start mr-auto bg-white border border-slate-200 text-slate-800 rounded-tl-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+  }
+  
+  // HEADER dengan username dan waktu
   const header = document.createElement("div");
   header.className = "flex items-center justify-between mb-2";
   
   const usernameSpan = document.createElement("span");
   usernameSpan.className = "text-xs font-semibold opacity-90";
-  usernameSpan.textContent = isMyMessage ? "You" : (m.username || "Unknown");
+  const displayUsername = isMyMessage ? "You" : (cleanUsername || "Unknown");
+  usernameSpan.textContent = displayUsername;
+  
+  // Tambahkan TCP badge di username jika dari TCP
+  if (isFromTCP && !isMyMessage) {
+    const tcpBadge = document.createElement("span");
+    tcpBadge.className = "ml-1 text-xs px-1 py-0.5 rounded bg-blue-100 text-blue-600";
+    tcpBadge.textContent = "TCP";
+    usernameSpan.appendChild(tcpBadge);
+  }
   
   const timeSpan = document.createElement("span");
   timeSpan.className = "text-xs opacity-75";
@@ -197,7 +257,7 @@ export function renderMessage(m) {
   header.appendChild(timeSpan);
   bubble.appendChild(header);
   
-  // Konten pesan
+  // KONTEN PESAN
   const fileUrl = m.file_url || m.file_path;
   
   if (messageType === "image") {
@@ -228,7 +288,17 @@ export function renderMessage(m) {
     bubble.appendChild(txt);
   }
   
+  // TAMBAHKAN LATENCY INFO (HANYA DI WEB)
+  if (latencyHTML) {
+    bubble.insertAdjacentHTML('beforeend', latencyHTML);
+  }
+  
   elements.messagesEl.appendChild(bubble);
+  
+  // Log untuk debugging
+  if (latencyMs !== null) {
+    console.log(`📊 Message latency: ${latencyMs}ms from ${displayUsername} via ${isFromTCP ? 'TCP' : 'WebSocket'}`);
+  }
   
   if (!m.is_from_load) {
     setTimeout(() => {
