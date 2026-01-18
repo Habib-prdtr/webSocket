@@ -1,131 +1,234 @@
-// tcp-client.js - TCP Chat Client (Global Chat Only)
-require('dotenv').config();
-const net = require('net');
-const https = require('https');
-const jwt = require('jsonwebtoken');
-const readline = require('readline');
+  // tcp-client.js - TCP Chat Client (Global Chat Only)
+  require('dotenv').config();
+  const net = require('net');
+  const https = require('https');
+  const readline = require('readline');
 
-const SECRET = process.env.JWT_SECRET;
-let token = null;
-let username = null;
+  let token = null;
+  let username = null;
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+  /**
+   * =========================
+   * READLINE (LOGIN ONLY)
+   * =========================
+   */
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-function login(usernameInput, password) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify({ username: usernameInput, password });
+  /**
+   * =========================
+   * LOGIN VIA HTTPS
+   * =========================
+   */
+  function login(usernameInput, password) {
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify({ username: usernameInput, password });
 
-    const options = {
-      hostname: 'localhost',
-      port: 3000,
-      path: '/api/login',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': data.length
-      },
-      rejectUnauthorized: false // For self-signed cert
-    };
+      const options = {
+        hostname: 'localhost',
+        port: 3000,
+        path: '/api/login',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        },
+        rejectUnauthorized: false
+      };
 
-    const req = https.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => body += chunk);
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(body);
-          if (response.token) {
-            resolve(response);
-          } else {
-            reject(new Error(response.error || 'Login failed'));
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(body);
+            if (response.token) resolve(response);
+            else reject(new Error(response.error || 'Login failed'));
+          } catch (e) {
+            reject(e);
           }
-        } catch (e) {
-          reject(e);
+        });
+      });
+
+      req.on('error', reject);
+      req.write(data);
+      req.end();
+    });
+  }
+
+  /**
+   * =========================
+   * PROMPT LOGIN
+   * =========================
+   */
+  function promptLogin() {
+    rl.question('Username: ', (user) => {
+      rl.question('Password: ', (pass) => {
+        login(user, pass)
+          .then((res) => {
+            token = res.token;
+            username = res.username;
+            console.log(`\nLogin successful as ${username}\n`);
+            rl.close();
+            startChat();
+          })
+          .catch((err) => {
+            console.error('Login failed:', err.message);
+            promptLogin();
+          });
+      });
+    });
+  }
+
+  /**
+   * =========================
+   * CHAT INPUT (RAW MODE)
+   * =========================
+   */
+  let currentInput = '';
+  let inputEnabled = false;
+
+  function redrawPrompt() {
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write('[Anda:] ' + currentInput);
+  }
+
+  function enableChatInput(client) {
+    if (inputEnabled) return;
+    inputEnabled = true;
+
+    readline.emitKeypressEvents(process.stdin);
+
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+    }
+
+    process.stdin.resume();
+
+    process.stdin.on('keypress', (str, key) => {
+      // Ctrl + C
+      if (key.sequence === '\u0003') {
+        process.stdout.write('\nKeluar...\n');
+        process.exit();
+      }
+
+      // ENTER
+      if (key.name === 'return') {
+        const msg = currentInput.trim();
+
+        if (msg) {
+          // tampilkan pesan sendiri LANGSUNG
+          process.stdout.clearLine(0);
+          process.stdout.cursorTo(0);
+          process.stdout.write(`[Anda]: ${msg}\n`);
+
+          client.write(JSON.stringify({
+            type: 'global_message',
+            content: msg
+          }) + '\n');
         }
-      });
-    });
 
-    req.on('error', reject);
-    req.write(data);
-    req.end();
-  });
-}
+        currentInput = '';
+        redrawPrompt();
+        return;
+      }
 
-function promptLogin() {
-  rl.question('Username: ', (user) => {
-    rl.question('Password: ', (pass) => {
-      login(user, pass).then((response) => {
-        token = response.token;
-        username = response.username;
-        console.log(`Login successful as ${username}`);
-        startChat();
-      }).catch((err) => {
-        console.error('Login failed:', err.message);
-        promptLogin();
-      });
-    });
-  });
-}
+      // BACKSPACE
+      if (key.name === 'backspace') {
+        currentInput = currentInput.slice(0, -1);
+        redrawPrompt();
+        return;
+      }
 
-function startChat() {
-  const client = new net.Socket();
-
-  client.connect(3002, 'localhost', () => {
-    console.log('Connected to TCP server');
-    console.log('This is GLOBAL CHAT ONLY via TCP. Type your messages:');
-
-    // Authenticate
-    client.write(JSON.stringify({ type: 'auth', token: token }) + '\n');
-
-    rl.on('line', (input) => {
-      if (input.trim()) {
-        const msg = {
-          type: 'global_message',
-          content: input.trim()
-        };
-        client.write(JSON.stringify(msg) + '\n');
+      // karakter biasa
+      if (!key.ctrl && !key.meta && key.sequence) {
+        currentInput += key.sequence;
+        redrawPrompt();
       }
     });
-  });
+  }
 
-  client.on('data', (data) => {
-    const messages = data.toString().split('\n');
-    messages.forEach(msg => {
-      if (msg.trim()) {
+  /**
+   * =========================
+   * START TCP CHAT
+   * =========================
+   */
+  function startChat() {
+    const client = new net.Socket();
+
+    client.connect(3002, 'localhost', () => {
+      console.log('Connected to TCP server');
+      console.log('GLOBAL CHAT (TCP)\n');
+
+      client.write(JSON.stringify({
+        type: 'auth',
+        token
+      }) + '\n');
+
+      enableChatInput(client);
+    });
+
+    client.on('data', (data) => {
+      const messages = data.toString().split('\n');
+
+      messages.forEach(msg => {
+        if (!msg.trim()) return;
+
         try {
           const parsed = JSON.parse(msg);
-          if (parsed.type === 'global_message') {
-            console.log(`${parsed.message.username}: ${parsed.message.content}`);
-          } else if (parsed.type === 'user_online') {
-            console.log(`User ${parsed.username} is online`);
-          } else if (parsed.type === 'user_offline') {
-            console.log(`User ${parsed.username} is offline`);
-          } else if (parsed.type === 'init') {
-            console.log('Connected! TCP Chat supports only global messages.');
-            console.log('Online users:', parsed.users.filter(u => u.is_online).map(u => u.username).join(', '));
-          } else if (parsed.type === 'error') {
-            console.error('Error:', parsed.message);
-          } else {
-            console.log('Received:', parsed);
+          if (parsed.type === 'auth_success') {
+            redrawPrompt();
+            return;
           }
-        } catch (e) {
-          console.log('Raw:', msg);
+
+          /**
+           * ===== REALTIME MESSAGE =====
+           * TAMPILKAN HANYA PESAN USER LAIN
+           */
+          if (
+            parsed.type === 'global_message' &&
+            parsed.message.username !== username
+          ) {
+
+            const receivedAt = Number(process.hrtime.bigint() / 1000000n);
+
+            const sentAt = parsed.message.sent_at;
+
+            let delayInfo = '';
+            if (sentAt) {
+              const delayMs = receivedAt - sentAt;
+              delayInfo = ` (${delayMs} ms)`;
+            }
+
+            process.stdout.clearLine(0);
+            process.stdout.cursorTo(0);
+            process.stdout.write(
+              `${parsed.message.username}: ${parsed.message.content}\n`
+            );
+            redrawPrompt();
+          }
+        } catch {
+          // ignore invalid JSON
         }
-      }
+      });
     });
-  });
 
-  client.on('close', () => {
-    console.log('Connection closed');
-    rl.close();
-  });
+    client.on('close', () => {
+      console.log('\nConnection closed');
+      process.exit();
+    });
 
-  client.on('error', (err) => {
-    console.error('Connection error:', err);
-  });
-}
+    client.on('error', (err) => {
+      console.error('Connection error:', err.message);
+    });
+  }
 
-// Start with login
-promptLogin();
+  /**
+   * =========================
+   * ENTRY POINT
+   * =========================
+   */
+  promptLogin();

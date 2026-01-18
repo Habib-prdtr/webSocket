@@ -1519,6 +1519,8 @@ wss.on('connection', async (ws, req) => {
           const content = data.content || "";
           if (!content) return;
 
+          const sentAt = Date.now(); 
+
           await pool.query('INSERT INTO messages (sender_id, room_id, content) VALUES (?, NULL, ?)', [ws.userId, content]);
 
           broadcastAll({
@@ -1527,11 +1529,29 @@ wss.on('connection', async (ws, req) => {
               sender_id: ws.userId,
               content,
               username: ws.username,
+              sent_at: Date.now(),
               room_id: null,
               recipient_id: null,
               created_at: new Date().toISOString()
             }
           });
+
+          // Also broadcast to TCP clients
+          tcpClients.forEach((client, sock) => {
+            sock.write(JSON.stringify({
+              type: "global_message",
+              message: {
+                sender_id: ws.userId,
+                content,
+                username: ws.username,
+                sent_at: sentAt,
+                room_id: null,
+                recipient_id: null,
+                created_at: new Date().toISOString()
+              }
+            }) + '\n');
+          });
+
           return;
         }
 
@@ -1789,6 +1809,25 @@ const tcpServer = net.createServer((socket) => {
               users: allUsers 
             }) + '\n');
 
+            // Send global chat history
+            const [globalMessages] = await pool.query(
+              'SELECT m.id, m.sender_id, m.content, m.created_at, u.username FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.room_id IS NULL AND m.recipient_id IS NULL ORDER BY m.created_at ASC'
+            );
+            
+            globalMessages.forEach(msg => {
+              socket.write(JSON.stringify({
+                type: 'global_message',
+                message: {
+                  sender_id: msg.sender_id,
+                  content: msg.content,
+                  username: msg.username,
+                  room_id: null,
+                  recipient_id: null,
+                  created_at: msg.created_at
+                }
+              }) + '\n');
+            });
+
             console.log(`TCP: User ${user.username} authenticated`);
           } catch (e) {
             socket.write(JSON.stringify({ type: 'error', message: 'Invalid token' }) + '\n');
@@ -1815,6 +1854,7 @@ const tcpServer = net.createServer((socket) => {
               sender_id: socket.userId,
               content,
               username: socket.username, // Just username, not "Global — username"
+              sent_at: Date.now(),
               room_id: null,
               recipient_id: null,
               created_at: new Date().toISOString()

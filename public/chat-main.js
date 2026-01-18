@@ -13,6 +13,8 @@ import {
   setCallerName, showAddContactModal, closeAddContactModal, updatePendingBadge
 } from './chat-ui.js';
 
+const receivedAt = performance.now();
+
 // State tambahan
 state.clearedContexts = {};
 state.messageCounts = {};
