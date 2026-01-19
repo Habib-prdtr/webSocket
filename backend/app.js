@@ -1035,7 +1035,7 @@ app.get('/api/debug/clear-status/:userId?', authMiddleware, async (req, res) => 
 });
 
 app.get('/api/ping', async (req, res) => {
-  // await new Promise(r => setTimeout(r, 300));
+  await new Promise(r => setTimeout(r, 300));
   res.sendStatus(204);
 });
 

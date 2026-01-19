@@ -28,6 +28,86 @@ state.typingUsers = {};
 
 let timerInterval;
 
+// Tambahkan di awal chat-main.js:
+
+// Performance monitoring dengan presisi tinggi
+const performanceMonitor = {
+  // Store sent timestamps with high precision
+  sentMessages: new Map(),
+  
+  // Get current time with high precision (milliseconds with decimals)
+  now() {
+    return performance.now();
+  },
+  
+  // Format time with appropriate precision
+  formatTime(ms) {
+    if (ms < 1) {
+      return `${ms.toFixed(3)}ms`; // 3 desimal untuk < 1ms
+    } else if (ms < 10) {
+      return `${ms.toFixed(2)}ms`; // 2 desimal untuk < 10ms
+    } else if (ms < 100) {
+      return `${ms.toFixed(1)}ms`; // 1 desimal untuk < 100ms
+    } else if (ms < 1000) {
+      return `${Math.round(ms)}ms`; // bulat untuk < 1s
+    } else if (ms < 10000) {
+      return `${(ms / 1000).toFixed(2)}s`; // detik dengan 2 desimal
+    } else {
+      return `${(ms / 1000).toFixed(1)}s`; // detik dengan 1 desimal
+    }
+  },
+  
+  // Calculate latency with high precision
+  calculateLatency(sentTimestamp) {
+    if (!sentTimestamp) return null;
+    
+    // sentTimestamp bisa dari Date.now() (integer) atau performance.now() (float)
+    const sentAt = typeof sentTimestamp === 'string' ? 
+                  new Date(sentTimestamp).getTime() : 
+                  sentTimestamp;
+    
+    // Untuk perbandingan yang akurat
+    const receivedAt = performance.now();
+    
+    // Jika sentAt dari Date.now(), konversi ke timeline performance
+    if (sentAt > 1e12) { // Date.now() menghasilkan timestamp 13 digit
+      const nowDate = Date.now();
+      const nowPerf = performance.now();
+      const diff = nowDate - sentAt;
+      return Math.max(0, nowPerf - (performance.timeOrigin + diff));
+    } else {
+      // Jika sudah dari performance timeline
+      return Math.max(0, receivedAt - sentAt);
+    }
+  },
+  
+  // Get latency category
+  getLatencyCategory(ms) {
+    if (ms < 1) return { icon: '⚡', color: 'text-emerald-500', desc: 'Excellent <1ms' };
+    if (ms < 5) return { icon: '⚡', color: 'text-emerald-500', desc: 'Super Fast' };
+    if (ms < 20) return { icon: '🚀', color: 'text-green-500', desc: 'Very Fast' };
+    if (ms < 50) return { icon: '🐇', color: 'text-blue-500', desc: 'Fast' };
+    if (ms < 100) return { icon: '🚶', color: 'text-yellow-500', desc: 'Good' };
+    if (ms < 200) return { icon: '🐢', color: 'text-orange-500', desc: 'Average' };
+    if (ms < 500) return { icon: '🐢', color: 'text-orange-600', desc: 'Slow' };
+    if (ms < 1000) return { icon: '🐌', color: 'text-red-500', desc: 'Very Slow' };
+    return { icon: '🐌', color: 'text-red-600', desc: 'Poor' };
+  },
+  
+  // Format untuk display
+  formatForDisplay(ms) {
+    const category = this.getLatencyCategory(ms);
+    return {
+      ...category,
+      formatted: this.formatTime(ms),
+      raw: ms,
+      timestamp: new Date().toISOString()
+    };
+  }
+};
+
+// Expose untuk debugging
+
 // ==================== FUNGSI FITUR BARU ====================
 
 // Fungsi untuk update chat info di header
@@ -1149,18 +1229,29 @@ function handleWS(data) {
         }
         
         if (shouldRender) {
-          // Tandai jika pesan dari TCP (jika username mengandung TCP)
-          if (data.message.username && data.message.username.includes('TCP')) {
-            data.message.sent_at = data.message.sent_at || Date.now() - 100; // Default jika tidak ada
+          // Hitung latency dengan presisi tinggi
+          const latency = performanceMonitor.calculateLatency(data.message.sent_at);
+          const isFromTCP = data.message.username?.includes('(TCP)');
+          
+          if (latency !== null) {
+            const latencyInfo = performanceMonitor.formatForDisplay(latency);
+            console.log(`🌍 Message from ${data.message.username}:`, {
+              latency: latencyInfo.formatted,
+              raw: latency,
+              protocol: isFromTCP ? 'TCP' : 'WebSocket',
+              category: latencyInfo.desc,
+              timestamp: performance.now().toFixed(3)
+            });
+            
+            // Tambahkan latency info ke message untuk render
+            data.message._latency = latency;
+            data.message._latencyFormatted = latencyInfo.formatted;
+            data.message._latencyCategory = latencyInfo.desc;
+            data.message._latencyColor = latencyInfo.color;
+            data.message._latencyIcon = latencyInfo.icon;
           }
           
           renderMessage(data.message);
-          
-          // Log latency info
-          if (data.message.sent_at) {
-            const latency = Date.now() - data.message.sent_at;
-            console.log(`🌍 Global message latency: ${latency}ms from ${data.message.username}`);
-          }
           
           // Update message count
           const isMyMessage = data.message.sender_id == myId;
@@ -1744,6 +1835,8 @@ async function init() {
   window.endCall = endCall;
   window.searchUsers = searchUsers;
   window.refreshUserStatus = refreshUserStatus;
+window.performanceMonitor = performanceMonitor;
+
   
   console.log('✅ Chat initialized');
 }

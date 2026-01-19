@@ -163,68 +163,133 @@ export function renderMessage(m) {
   const isFromTCP = m.username?.includes('(TCP)') || m.sender_username?.includes('(TCP)');
   const cleanUsername = isFromTCP ? m.username.replace(' (TCP)', '') : m.username;
   
-  // HITUNG DAN TAMPILKAN LATENCY HANYA DI WEB
+  // HITUNG LATENCY DENGAN PRESISI TINGGI
   let latencyHTML = '';
   let latencyMs = null;
+  let latencyMsPrecise = null;
   
   if (m.sent_at) {
+    // Gunakan performance.now() untuk presisi yang lebih tinggi
     const sentAt = typeof m.sent_at === 'string' ? 
                   new Date(m.sent_at).getTime() : 
                   m.sent_at;
-    const receivedAt = Date.now();
-    latencyMs = Math.max(0, Math.round(receivedAt - sentAt));
+    const receivedAt = performance.now(); // Lebih presisi dari Date.now()
     
-    // Hanya tampilkan jika latency valid (< 30 detik)
-    if (latencyMs < 30000) {
-      // Tentukan warna berdasarkan latency
-      let latencyColor = 'text-gray-500';
-      let latencyIcon = '📨';
-      let latencyText = `${latencyMs}ms`;
-      
-      if (latencyMs < 50) {
-        latencyColor = 'text-green-500';
-        latencyIcon = '⚡';
-      } else if (latencyMs < 150) {
-        latencyColor = 'text-blue-500';
-        latencyIcon = '🚀';
-      } else if (latencyMs < 500) {
-        latencyColor = 'text-yellow-500';
-        latencyIcon = '🐇';
-      } else if (latencyMs < 1000) {
-        latencyColor = 'text-orange-500';
-        latencyIcon = '🚶';
+    // Konversi ke milidetik dengan 1 desimal
+    latencyMsPrecise = Math.max(0, receivedAt - (sentAt - performance.timeOrigin));
+    latencyMs = Math.round(latencyMsPrecise * 10) / 10; // 1 desimal
+    
+    // Hanya tampilkan jika latency valid
+    if (latencyMsPrecise < 30000) {
+      // Format latency dengan 1-2 desimal tergantung nilainya
+      let latencyText = '';
+      if (latencyMsPrecise < 10) {
+        latencyText = `${latencyMsPrecise.toFixed(2)}ms`; // 2 desimal untuk < 10ms
+      } else if (latencyMsPrecise < 100) {
+        latencyText = `${latencyMsPrecise.toFixed(1)}ms`; // 1 desimal untuk < 100ms
+      } else if (latencyMsPrecise < 1000) {
+        latencyText = `${Math.round(latencyMsPrecise)}ms`; // bulat untuk < 1s
       } else {
-        latencyColor = 'text-red-500';
-        latencyIcon = '🐢';
+        latencyText = `${(latencyMsPrecise / 1000).toFixed(2)}s`; // detik dengan 2 desimal
       }
       
-      // Tampilkan protocol (TCP/WS)
-      const protocolBadge = isFromTCP ? 
-        `<span class="ml-1 text-xs px-1 py-0.5 rounded bg-blue-100 text-blue-600">TCP</span>` : 
-        `<span class="ml-1 text-xs px-1 py-0.5 rounded bg-purple-100 text-purple-600">WS</span>`;
+      // Tentukan warna dan icon berdasarkan latency
+      let latencyColor = 'text-gray-500';
+      let latencyIcon = '📨';
+      let latencyDescription = 'Normal';
       
+      if (latencyMsPrecise < 5) {
+        latencyColor = 'text-emerald-500';
+        latencyIcon = '⚡';
+        latencyDescription = 'Sangat Cepat';
+      } else if (latencyMsPrecise < 20) {
+        latencyColor = 'text-green-500';
+        latencyIcon = '🚀';
+        latencyDescription = 'Cepat';
+      } else if (latencyMsPrecise < 50) {
+        latencyColor = 'text-blue-500';
+        latencyIcon = '🐇';
+        latencyDescription = 'Baik';
+      } else if (latencyMsPrecise < 100) {
+        latencyColor = 'text-yellow-500';
+        latencyIcon = '🚶';
+        latencyDescription = 'Sedang';
+      } else if (latencyMsPrecise < 500) {
+        latencyColor = 'text-orange-500';
+        latencyIcon = '🐢';
+        latencyDescription = 'Lambat';
+      } else {
+        latencyColor = 'text-red-500';
+        latencyIcon = '🐌';
+        latencyDescription = 'Sangat Lambat';
+      }
+      
+      // Tampilkan protocol
+      const protocolBadge = isFromTCP ? 
+        `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium shadow-sm">TCP</span>` : 
+        `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium shadow-sm">WS</span>`;
+      
+      // HTML untuk latency info yang detail
       latencyHTML = `
-        <div class="latency-container flex items-center justify-end gap-1 mt-1">
-          <div class="latency-badge ${latencyColor} text-xs flex items-center gap-1 px-2 py-0.5 rounded-full bg-opacity-10 ${latencyColor.replace('text-', 'bg-')}">
-            <span>${latencyIcon}</span>
-            <span>${latencyText}</span>
-            ${protocolBadge}
+        <div class="latency-container mt-2 pt-2 border-t border-opacity-10 ${isMyMessage ? 'border-white' : 'border-gray-200'}">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="latency-indicator ${latencyColor} text-xs font-medium flex items-center gap-1.5">
+                <span class="text-sm">${latencyIcon}</span>
+                <span class="latency-value font-mono">${latencyText}</span>
+                ${protocolBadge}
+              </div>
+              <span class="latency-description text-[10px] text-gray-500 font-medium">${latencyDescription}</span>
+            </div>
+            <div class="text-[10px] text-gray-400 font-mono">
+              ${performance.now().toFixed(1)}ms
+            </div>
+          </div>
+          
+          <!-- Progress bar untuk visualisasi latency -->
+          <div class="latency-progress mt-1.5 w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+            <div class="latency-progress-bar h-full ${latencyColor.replace('text-', 'bg-')} rounded-full transition-all duration-500" 
+                 style="width: ${Math.min(100, (latencyMsPrecise / 500) * 100)}%">
+            </div>
+          </div>
+          
+          <!-- Detail waktu -->
+          <div class="latency-details mt-1.5 flex justify-between text-[9px] text-gray-400">
+            <span class="sent-time">📤 ${m.sent_at ? new Date(m.sent_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 3}) : '--:--:--.---'}</span>
+            <span class="arrow">→</span>
+            <span class="received-time">📥 ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 3})}</span>
           </div>
         </div>
       `;
       
-      // Tambahkan tooltip untuk detail
-      const sentTime = new Date(sentAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-      const receivedTime = new Date(receivedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-      bubble.title = `📤 Sent: ${sentTime}\n📥 Received: ${receivedTime}\n⏱️ Latency: ${latencyMs}ms\n📡 Protocol: ${isFromTCP ? 'TCP' : 'WebSocket'}`;
+      // Tooltip untuk detail yang lebih lengkap
+      const sentTime = m.sent_at ? new Date(m.sent_at).toLocaleTimeString([], {
+        hour: '2-digit', 
+        minute:'2-digit', 
+        second:'2-digit', 
+        fractionalSecondDigits: 3
+      }) : 'Unknown';
+      
+      bubble.title = `📡 PROTOKOL: ${isFromTCP ? 'TCP Socket' : 'WebSocket'}
+📤 DIKIRIM: ${sentTime}
+📥 DITERIMA: ${new Date().toLocaleTimeString([], {
+  hour: '2-digit', 
+  minute:'2-digit', 
+  second:'2-digit', 
+  fractionalSecondDigits: 3
+})}
+⏱️ LATENSI: ${latencyMsPrecise.toFixed(3)}ms
+🏷️ STATUS: ${latencyDescription}
+👤 PENGIRIM: ${cleanUsername}
+🆔 ID: ${messageId}`;
     }
   }
   
   // Bubble styling
   if (isMyMessage) {
-    bubble.className = "message me max-w-[45%] self-end ml-auto bg-indigo-500 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+    bubble.className = "message me max-w-[48%] self-end ml-auto bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-tr-none rounded-2xl px-4 py-3 mb-4 shadow-lg";
   } else {
-    bubble.className = "message other max-w-[45%] self-start mr-auto bg-white border border-slate-200 text-slate-800 rounded-tl-none rounded-2xl px-4 py-3 mb-3 shadow-sm";
+    bubble.className = "message other max-w-[48%] self-start mr-auto bg-white border border-gray-200 text-gray-800 rounded-tl-none rounded-2xl px-4 py-3 mb-4 shadow-lg";
   }
   
   // HEADER dengan username dan waktu
@@ -232,25 +297,33 @@ export function renderMessage(m) {
   header.className = "flex items-center justify-between mb-2";
   
   const usernameSpan = document.createElement("span");
-  usernameSpan.className = "text-xs font-semibold opacity-90";
+  usernameSpan.className = "text-xs font-semibold opacity-90 flex items-center gap-1.5";
   const displayUsername = isMyMessage ? "You" : (cleanUsername || "Unknown");
   usernameSpan.textContent = displayUsername;
   
   // Tambahkan TCP badge di username jika dari TCP
   if (isFromTCP && !isMyMessage) {
     const tcpBadge = document.createElement("span");
-    tcpBadge.className = "ml-1 text-xs px-1 py-0.5 rounded bg-blue-100 text-blue-600";
+    tcpBadge.className = "text-[10px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium shadow-sm";
     tcpBadge.textContent = "TCP";
     usernameSpan.appendChild(tcpBadge);
   }
   
   const timeSpan = document.createElement("span");
-  timeSpan.className = "text-xs opacity-75";
+  timeSpan.className = "text-xs opacity-75 font-mono";
   try {
     const timestamp = m.created_at ? new Date(m.created_at) : new Date();
-    timeSpan.textContent = timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    timeSpan.textContent = timestamp.toLocaleTimeString([], {
+      hour: '2-digit', 
+      minute:'2-digit', 
+      second:'2-digit'
+    });
   } catch {
-    timeSpan.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    timeSpan.textContent = new Date().toLocaleTimeString([], {
+      hour: '2-digit', 
+      minute:'2-digit', 
+      second:'2-digit'
+    });
   }
   
   header.appendChild(usernameSpan);
@@ -263,14 +336,14 @@ export function renderMessage(m) {
   if (messageType === "image") {
     const img = document.createElement("img");
     img.src = fileUrl;
-    img.className = "msg-image rounded-lg max-w-full h-auto";
+    img.className = "msg-image rounded-lg max-w-full h-auto mb-2";
     img.loading = "lazy";
     img.alt = "Shared image";
     bubble.appendChild(img);
   }
   else if (isVoice) {
     const audioContainer = document.createElement("div");
-    audioContainer.className = "audio-container flex items-center gap-3";
+    audioContainer.className = "audio-container flex items-center gap-3 mb-2";
     
     const audio = document.createElement("audio");
     audio.src = fileUrl;
@@ -284,29 +357,36 @@ export function renderMessage(m) {
   else {
     const txt = document.createElement("div");
     txt.textContent = m.content || "";
-    txt.className = "message-text whitespace-pre-wrap break-words";
+    txt.className = "message-text whitespace-pre-wrap break-words mb-2";
     bubble.appendChild(txt);
   }
   
-  // TAMBAHKAN LATENCY INFO (HANYA DI WEB)
-  if (latencyHTML) {
+  // TAMBAHKAN LATENCY INFO DENGAN PRESISI TINGGI
+  if (latencyHTML && latencyMsPrecise < 10000) { // Hanya tampilkan jika < 10 detik
     bubble.insertAdjacentHTML('beforeend', latencyHTML);
   }
   
   elements.messagesEl.appendChild(bubble);
   
-  // Log untuk debugging
-  if (latencyMs !== null) {
-    console.log(`📊 Message latency: ${latencyMs}ms from ${displayUsername} via ${isFromTCP ? 'TCP' : 'WebSocket'}`);
+  // Log untuk debugging dengan presisi tinggi
+  if (latencyMsPrecise !== null) {
+    console.log(`📊 Message latency: ${latencyMsPrecise.toFixed(3)}ms from ${displayUsername} via ${isFromTCP ? 'TCP' : 'WebSocket'} at ${performance.now().toFixed(1)}ms`);
   }
   
+  // Scroll ke bawah dengan smooth
   if (!m.is_from_load) {
     setTimeout(() => {
       if (elements.messagesEl) {
-        elements.messagesEl.scrollTop = elements.messagesEl.scrollHeight;
+        elements.messagesEl.scrollTo({
+          top: elements.messagesEl.scrollHeight,
+          behavior: 'smooth'
+        });
       }
-    }, 50);
+    }, 100);
   }
+  
+  // Tambahkan animasi
+  bubble.style.animation = 'messageSlideIn 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)';
 }
 
 export function shouldShowMessageForContext(message) {

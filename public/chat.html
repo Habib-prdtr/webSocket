@@ -119,58 +119,92 @@
       max-width: 280px;
     }
 
-    .latency-badge {
-      font-size: 0.7rem;
-      font-weight: 500;
-      backdrop-filter: blur(4px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+    @keyframes messageSlideIn {
+      0% {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
     }
 
-    .message.me .latency-badge {
-      background-color: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.2);
+    .message {
+      animation: messageSlideIn 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      transition: all 0.3s ease;
     }
 
-    .message.other .latency-badge {
-      background-color: rgba(0, 0, 0, 0.05);
-      border-color: rgba(0, 0, 0, 0.1);
-    }
-
-    /* Protocol badge */
-    .latency-badge span:last-child {
-      font-size: 0.6rem;
-      font-weight: 600;
+    /* Latency container styling */
+    .latency-container {
+      border-top-width: 1px;
       opacity: 0.9;
+      transition: opacity 0.3s;
     }
 
-    /* Tooltip untuk detail latency */
+    .message:hover .latency-container {
+      opacity: 1;
+    }
+
+    /* Latency progress bar */
+    .latency-progress {
+      height: 2px;
+      background: linear-gradient(90deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.1) 100%);
+    }
+
+    .message.me .latency-progress {
+      background: linear-gradient(90deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.2) 100%);
+    }
+
+    .latency-progress-bar {
+      transition: width 1s ease-in-out;
+      background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.8) 100%);
+    }
+
+    /* Font untuk angka presisi */
+    .latency-value {
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+
+    .latency-details {
+      font-family: 'Courier New', monospace;
+      letter-spacing: -0.3px;
+    }
+
+    /* Tooltip yang lebih baik */
     .message {
       position: relative;
       cursor: help;
-      transition: transform 0.2s;
     }
 
     .message:hover {
-      transform: translateY(-1px);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
     }
 
     .message:hover::after {
       content: attr(title);
       position: absolute;
-      bottom: calc(100% + 5px);
+      bottom: calc(100% + 10px);
       left: 0;
-      background: rgba(0, 0, 0, 0.9);
+      right: 0;
+      background: rgba(0, 0, 0, 0.95);
       color: white;
-      padding: 8px 12px;
-      border-radius: 8px;
+      padding: 12px 16px;
+      border-radius: 10px;
       font-size: 0.75rem;
       white-space: pre-line;
       z-index: 1000;
-      max-width: 280px;
+      max-width: 320px;
       pointer-events: none;
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      line-height: 1.6;
+      text-align: left;
+      font-family: 'Segoe UI', system-ui, sans-serif;
     }
 
     .message.me:hover::after {
@@ -178,30 +212,27 @@
       right: 0;
     }
 
-    /* Animasi untuk pesan baru */
-    @keyframes messageSlideIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
+    /* Warna untuk berbagai level latency */
+    .text-emerald-500 { color: #10b981; }
+    .bg-emerald-500 { background-color: #10b981; }
 
-    .message {
-      animation: messageSlideIn 0.3s ease-out;
-    }
+    .text-green-500 { color: #22c55e; }
+    .bg-green-500 { background-color: #22c55e; }
 
-    /* TCP User badge di username */
-    .username-tcp-badge {
-      font-size: 0.6rem;
-      padding: 1px 4px;
-      border-radius: 4px;
-      font-weight: 600;
-      vertical-align: middle;
-    }
+    .text-blue-500 { color: #3b82f6; }
+    .bg-blue-500 { background-color: #3b82f6; }
+
+    .text-yellow-500 { color: #eab308; }
+    .bg-yellow-500 { background-color: #eab308; }
+
+    .text-orange-500 { color: #f97316; }
+    .bg-orange-500 { background-color: #f97316; }
+
+    .text-red-500 { color: #ef4444; }
+    .bg-red-500 { background-color: #ef4444; }
+
+    .text-purple-500 { color: #8b5cf6; }
+    .bg-purple-500 { background-color: #8b5cf6; }
   </style>
 </head>
 <body class="bg-slate-100 h-screen overflow-hidden">

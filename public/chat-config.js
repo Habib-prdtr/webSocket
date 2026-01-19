@@ -48,5 +48,35 @@ export function authHeaders() {
   };
 }
 
+export function getHighPrecisionTimestamp() {
+  return {
+    dateNow: Date.now(),
+    performanceNow: performance.now(),
+    performanceTimeOrigin: performance.timeOrigin,
+    isoString: new Date().toISOString()
+  };
+}
+
+// Fungsi untuk menghitung latency antara dua timestamp
+export function calculateLatencyBetween(sentTimestamp, receivedTimestamp = performance.now()) {
+  if (!sentTimestamp) return null;
+  
+  // Jika sentTimestamp adalah object dari getHighPrecisionTimestamp
+  if (typeof sentTimestamp === 'object' && sentTimestamp.performanceNow) {
+    return Math.max(0, receivedTimestamp - sentTimestamp.performanceNow);
+  }
+  
+  // Jika sentTimestamp adalah Date.now() integer
+  if (typeof sentTimestamp === 'number' && sentTimestamp > 1e12) {
+    const nowDate = Date.now();
+    const nowPerf = performance.now();
+    const diff = nowDate - sentTimestamp;
+    return Math.max(0, nowPerf - (performance.timeOrigin + diff));
+  }
+  
+  // Default
+  return Math.max(0, receivedTimestamp - sentTimestamp);
+}
+
 // Cek authentication
 if (!token) window.location.href = "/login.html";
